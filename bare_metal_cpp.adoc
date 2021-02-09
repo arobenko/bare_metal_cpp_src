@@ -1,0 +1,11 @@
+= Practical Guide to Bare Metal C++
+Alex Robenko
+v1.0
+:doctype: article
+:toc: left
+:source-highlighter: rouge
+:title-page:
+:numbered!:
+:sectnums!:
+:revinfo!:
+
