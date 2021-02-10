@@ -1,0 +1,25 @@
+=== C++ Popularity ===
+C++ is quite popular in the embedded world of Linux-based embedded systems. However, it is not 
+that popular in bare metal development. Why? Probably because of its complexity. Knowing C++ 
+syntax is not enough. To use it effectively the developer must know what Standard Template 
+Library (STL) provides, what can and what cannot be used when developing for specific platform. 
+STL mastery is also not enough, the developer should have some level of proficiency in 
+template meta-programming. Although there is an opinion that templates are dangerous because of 
+executable code bloating, I think that templates are developer's friends, but the one must 
+know the dangers and know how to use templates effectively. But again, it requires time and effort 
+to get to know how to do it right.
+
+Another reason why C++ is not used in bare metal development is that software in significant 
+number (if not majority) of projects gets written by hardware developers, at least in its first 
+stages just to make sure the hardware works as expected. The “C” programming language is a natural 
+choice for them. And of course majority of hardware developers lack proficiency in software development. 
+They may have some difficulties writing code of good quality in “C”, not to mention “C++”. After 
+software reaches certain level of complexity it is handed over to software engineers who are not allowed 
+to re-implement it from scratch. They are told something like: “This code almost works, just fix a 
+couple of bugs, implement this short set of features and we're good to go. Throwing away the existing 
+code is a waste, we do not have time to re-implement it.”
+
+The last reason, I think, is psychological one. People prefer to be wrong in a group than right by 
+themselves. When majority of bare metal products being developed using “C”, it feels risky and 
+unnatural to choose “C++”, even though the latter is better choice from the technological perspective.
+

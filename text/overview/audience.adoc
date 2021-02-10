@@ -1,0 +1,27 @@
+=== Audience ===
+The primary intended audience of this document is professional C++ developers who want 
+to understand bare metal development a little bit better, get to know how to use their 
+favourite programming language in an embedded environment, and probably bring their C++ 
+skills to an “expert” level. Why **professional**? Because bare metal platform has lots 
+of limitations. In most cases no exceptions and no runtime type information (RTTI) support 
+will be available. In many cases the dynamic memory allocation will also be excluded. 
+In order to be able to use C++ effectively you will have to have deep knowledge of existing 
+C++ idioms, constructs and STL contents. You must know how your favourite data structures 
+are implemented and whether it is possible to reuse them in your environment. If  it is 
+not possible to use  the STL (or any other library) code “as is”, you will have to implement 
+a reduced version of it, and it is better to know how the library developers implemented 
+the feature and how to make it work with the constrains of your environment. 
+
+The professional embedded developers with intermediate knowledge of C++ may also find this 
+document useful. They will probably benefit from lots of C++ insights and will have several 
+“eureka” moments with “I didn't know I could do that!!!” kind of thoughts.
+
+If your C++ knowledge doesn't go much beyond polymorphism and virtual functions, if 
+template meta-programming doesn't mean anything to you, probably you are not ready to use 
+C++ in the embedded environment and this document will probably be too complex to understand. 
+
+I'd like to emphasise the fact that this is NOT a C++ tutorial. There are lots of resources on 
+the web that teach conventional C++ with OS services, exceptions and RTTI. My personal 
+opinion is that you have to master C++ in regular environment before using it effectively 
+in the bare metal world.
+

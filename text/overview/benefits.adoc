@@ -1,0 +1,9 @@
+=== Benefits of C++ ===
+The primary reason to prefer C++ over C is **code reuse**. Thanks to templates, 
+it is much easier to implement generic piece of code that can be reused between 
+projects in C++ than in C. When implementing everything from scratch, then 
+probably using C++ instead of C won't give any significant advantage in terms 
+of development effort, maybe even extend it. However, once generic components 
+have been developed, the whole development process for next projects will be 
+much easier and faster, thanks to reuse of the former. 
+

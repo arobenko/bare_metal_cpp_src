@@ -1,0 +1,88 @@
+=== Contents of This Book ===
+This document introduces several concepts that can be used in bare-metal development as well 
+as shows how they can be implemented using features of latest (at the time of writing) 
+C++11 standard. 
+
+The code of generic components is implemented as part of  “Embedded C++ Library” project 
+called “embxx”  and can be found at https://github.com/arobenko/embxx. It has GPLv3 licence.
+
+There is also a project that implements multiple simple bare metal applications using 
+https://github.com/arobenko/embxx[embxx] which can run on RaspberryPi platform. The source 
+code can be found at  https://github.com/arobenko/embxx_on_rpi. It also has GPLv3 licence.
+
+Both projects require gcc version 4.7 or higher, because of C++11 support requirement. 
+They also use http://www.cmake.org[CMake] as their build system. The code has been tested 
+with following free toolchains:
+
+* https://launchpad.net/gcc-arm-embedded[GNU Tools for ARM Embedded Processors] on Launchpad
+* http://www.mentor.com/embedded-software/sourcery-tools/sourcery-codebench/editions/lite-edition/[Sourcery CodeBench Lite Edition]
+
+The whole document is ARM platform centric. At this moment I do not try to cover anything else.
+
+To compile Raspberry Pi example applications in Linux environment use the following steps:
+
+* Checkout https://github.com/arobenko/embxx_on_rpi[embxx_on_rpi] project
+[source]
+----
+> git clone https://github.com/arobenko/embxx_on_rpi.git
+> cd embxx_on_rpi
+----
+* Create separate build directory and cd to it
+[source]
+----
+> mkdir build
+> cd build
+----
+* Generate makefiles
+[source]
+----
+> cmake ..
+----
+
+Note that last parameter to cmake is relative or absolute path to the root of the source tree.
+Also note that https://github.com/arobenko/embxx[embxx] library will be checked out as external 
+git submodule during this process.
+
+* Build the applications
+[source]
+----
+> make
+----
+* Take the generated image from `<build_dir>/image/<app_name>/kernel.img`
+
+
+The CMake provides the following build types, which I believe are self-explanatory:
+
+* None (default)
+* Debug
+* Release
+* MinSizeRel
+* RelWithDebInfo
+
+To specify the required build type use `-DCMAKE_BUILD_TYPE=<value>` option of cmake utility:
+[source]
+----
+> cmake -DCMAKE_BUILD_TYPE=Release ..
+----
+
+If no build type is specified, the default one is *None*, which is similar to *Debug*, but 
+without `-g` compilation option, i.e. no optimisations and no debugging information is generated.
+
+It is possible to specify the cross-compilation toolchain prefix. By default `arm-none-eabi-` 
+is expected, i.e. `arm-none-eabi-gcc`, `arm-none-eabi-g++` and `arm-none-eabi-as` are used to 
+compile the sources. If these utilities cannot be found in environment search paths, then you 
+should specify the prefix passing `-DCROSS_COMPILE=<prefix>` option to cmake:
+[source]
+----
+> cmake -DCROSS_COMPILE=/opt/arm-none-eabi-2013.05/bin/arm-none-eabi- ..
+----
+
+To see the commands used to compile the sources, prefix `make` with `VERBOSE=1`:
+[source]
+----
+> VERBOSE=1 make
+----
+
+The https://github.com/arobenko/embxx[embxx] library has doxygen generated documentation. It can be found 
+at https://github.com/arobenko/embxx/releases[release artifacts].
+

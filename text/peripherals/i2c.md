@@ -1,0 +1,254 @@
+## I2C
+
+[I2C](http://en.wikipedia.org/wiki/I%C2%B2C) is serial communication bus. It is very popular in embedded development and mostly used to communicate to various low speed peripherals, such as eeproms and various sensors. 
+
+The control and use of I2C fits nicely into the [Device-Driver-Component](../basic_concepts/device_driver_component.md) model described in this book. It is a serial interface and the controlling **Device** object will have to read/write characters one by one, just like it was with [UART](uart.md). It would be nice if we coud reuse the Character **Driver** we implemented before. However, the I2C is multi-master / multi-slave bus and there is a need to specify the slave ID (or address) when initiating read and/or write operation. 
+
+### ID Adaptor
+
+It is quite clear that some kind of **ID Device Adaptor** is needed. It will be constructed with additional ID parameter and will be responsible to forward all the API calls from the Character **Driver** to I2C **Device** while adding one extra parameter of ID. 
+
+![Image: Using ID Adapter](../image/id_adapter_write.png)
+
+The implementation of such adaptor is very simple and straightforward:
+```cpp
+template <typename TDevice>
+class IdAdaptor
+{
+public:
+    // Type of the underlaying device.
+    typedef TDevice Device;
+
+    // Character type defined in the wrapped device
+    typedef typename TDevice::CharType CharType;
+
+    // Device identification type defined in the wrapped device class.
+    typedef typename TDevice::DeviceIdType DeviceIdType;
+
+    IdAdaptor(Device& device, DeviceIdType id)
+      : device_(device),
+        id_(id)
+    {
+    }
+
+    template <typename TFunc>
+    void setCanReadHandler(TFunc&& func)
+    {
+        device_.setCanReadHandler(id_, std::forward<TFunc>(func));
+    }
+
+    template <typename TFunc>
+    void setCanWriteHandler(TFunc&& func)
+    {
+        device_.setCanWriteHandler(id_, std::forward<TFunc>(func));
+    }
+
+    template <typename TFunc>
+    void setReadCompleteHandler(TFunc&& func)
+    {
+        device_.setReadCompleteHandler(id_, std::forward<TFunc>(func));
+    }
+
+    template <typename TFunc>
+    void setWriteCompleteHandler(TFunc&& func)
+    {
+        device_.setWriteCompleteHandler(id_, std::forward<TFunc>(func));
+    }
+
+    template <typename... TArgs>
+    void startRead(TArgs&&... args)
+    {
+        device_.startRead(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    bool cancelRead(TArgs&&... args)
+    {
+        return device_.cancelRead(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    void startWrite(TArgs&&... args)
+    {
+        device_.startWrite(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    bool cancelWrite(TArgs&&... args)
+    {
+        return device_.cancelWrite(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    bool suspend(TArgs&&... args)
+    {
+        return device_.suspend(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    void resume(TArgs&&... args)
+    {
+        device_.resume(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    bool canRead(TArgs&&... args)
+    {
+        return device_.canRead(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    bool canWrite(TArgs&&... args)
+    {
+        return device_.canWrite(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    CharType read(TArgs&&... args)
+    {
+        return device_.read(id_, std::forward<TArgs>(args)...);
+    }
+
+    template <typename... TArgs>
+    void write(TArgs&&... args)
+    {
+        device_.write(id_, std::forward<TArgs>(args)...);
+    }
+
+private:
+    Device& device_;
+    DeviceIdType id_;
+};
+
+```
+The same adaptor class is implemented in [embxx/device/IdDeviceCharAdapter.h](https://github.com/arobenko/embxx/blob/master/embxx/device/IdDeviceCharAdapter.h) file of [embxx](https://github.com/arobenko/embxx) library.
+
+### Operations Queue
+
+The I2C protocol allows existence of multiple independent slaves on the same bus. It means there may be several independent **Components** that communicate to different I2C devices (for example EEPROM and temperature sensor), but must share the same **Device** control object and may issue read/write requests to it in parallel. To resolve this problem, there must be some kind of operation queuing facility that is responsible to queue all the read/write requests to the **Device** and issue them one by one.
+
+The objects' usage map looks like this:
+
+![Image: Using Op Queue](../image/op_queue.png)
+
+Such queue is a platform/product independent piece of code and it should be implemented without using dynamic memory allocation and/or exceptions. It means that it should receive number of various **Driver** objects, that may issue independent read/write requests to it (i.e. size of the internal queue), as a template parameter and probably use [Static (Fixed Size) Queue](../basic_needs/queue.md) to queue all the requests that are coming in. It should also receive callback storage types to report when a new character can be read/written, as well as when read/write operation is complete.
+```cpp
+template <typename TDevice,
+          std::size_t TSize,
+          typename TCanDoOpHandler = embxx::util::StaticFunction<void()>,
+          typename TOpCompleteHandler = 
+              embxx::util::StaticFunction<void (const embxx::error::ErrorStatus&)> >
+class DeviceOpQueue
+{
+public:
+    DeviceOpQueue(TDevice& device);
+    ...
+private:
+    typedef embxx::container::StaticQueue<..., TSize> Queue;
+    Queue queue_;
+};
+```
+
+When the `TSize` template parameter is set to `1`, there is no need for all the queuing facility and the DeviceOpQueue class may become a simple pass-through inline class using template specialisation:
+```cpp
+template <typename TDevice>
+class DeviceOpQueue<TDevice, 1>
+{
+public:
+
+    typedef typename TDevice::PinIdType PinIdType;
+
+    template <typename... TArgs>
+    void startRead(TArgs&&... args)
+    {
+        device_.startRead(std::forward<TArgs>(args)...)
+    }
+
+    template <typename... TArgs>
+    bool cancelRead(PinIdType id, TArgs&&... args)
+    {
+        static_cast<void>(id); // No use for id in the Device itself
+        return device_.cancelRead(std::forward<TArgs>(args)...)
+    }
+
+    template <typename... TArgs>
+    bool suspend(PinIdType id, TArgs&&... args)
+    {
+        static_cast<void>(id); // No use for id in the Device itself
+        return device_.suspend(std::forward<TArgs>(args)...)
+    }
+
+    ...
+};
+```
+Such queue is also implemented in [embxx](https://github.com/arobenko/embxx) library. It resides in the [embxx/device/DeviceOpQueue.h](https://github.com/arobenko/embxx/blob/master/embxx/device/DeviceOpQueue.h) file.
+
+Please note that [ID Adaptor](#id-adaptor) and [Operations Queue](#operations-queue) are both **Device** layer classes. The serve as wrappers to actual peripheral control **Device** in order to expose the right interface to the upper layer **Driver**.
+
+### I2C Device
+
+The only thing that remains is to properly implement I2C control device, which can be used by the `DeviceOpQueue`, which in turn is used by the `IdAdaptor`. The `IdAdaptor` object can be used with the existing `Character` **Driver** implemented to be used with the [UART](uart.md) peripheral.
+
+Based on the information above, the platform specific I2C control **Device** object must provide the following public interface:
+```cpp
+class I2CDevice
+{
+public:
+    // Single character type
+    typedef std::uint8_t CharType;
+
+    // ID type
+    typedef std::uint8_t DeviceIdType; 
+
+    // Context types
+    typedef embxx::device::context::EventLoop EventLoopContext;
+    typedef embxx::device::context::Interrupt InterruptContext;
+
+    // Set various interrupt handlers
+    template <typename TFunc>
+    void setCanReadHandler(TFunc&& func);
+
+    template <typename TFunc>
+    void setCanWriteHandler(TFunc&& func);
+
+    template <typename TFunc>
+    void setReadCompleteHandler(TFunc&& func);
+
+    template <typename TFunc>
+    void setWriteCompleteHandler(TFunc&& func);
+
+    // Start read for both contexts.
+    void startRead(DeviceIdType address, std::size_t length, EventLoopContext);
+    void startRead(DeviceIdType address, std::size_t length, InterruptContext);
+
+    // Cancel read for both contexts.
+    bool cancelRead(EventLoopContext);
+    bool cancelRead(InterruptContext);
+
+    // Start write for both contexts.
+    void startWrite(DeviceIdType address, std::size_t length, EventLoopContext);
+    void startWrite(DeviceIdType address, std::size_t length, InterruptContext);
+        TContext context);
+
+    // Cancel write for both contexts.
+    bool cancelWrite(EventLoopContext);
+    bool cancelWrite(InterruptContext);
+
+    // Suspend/Resume
+    bool suspend(EventLoopContext);
+    void resume(EventLoopContext);
+
+    // Helper functions to manage read/write during the interrupt
+    bool canRead(InterruptContext);
+    bool canWrite(InterruptContext);
+    CharType read(InterruptContext);
+    void write(CharType value, InterruptContext);
+};
+```
+
+Such device to control **I2C0** interface on RaspberryPi platform is implemented in [src/device/I2C0.h](https://github.com/arobenko/embxx_on_rpi/blob/master/src/device/I2C0.h) file of [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project.
+
+### EEPROM Access Application
+
+The [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project contains an application called [app_i2c0_eeprom](https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_i2c0_eeprom). It implements a parallel access to 2 EEPROMs connected to the same I2C0 bus, but having different addresses. The EEPROMs are accessed independently at the same time with read/write operations. These operations are queued and managed by the `DeviceOpQueue` object that wraps actual I2C control **Device** and forwards the requests one by one.
+

@@ -1,0 +1,90 @@
+## Exceptions
+
+Exception handling is also a core feature of the conventional C++. However, 
+this feature is considered to be too dangerous, because of unpredictable code 
+execution time and too expensive (in terms of code size) for bare metal platforms. 
+The usage of single throw statement in the source code will result in more than 
+120KB of extra binary code in the final binary image. Just try it yourself with 
+your compiler and see the difference in size of the produced binary images. 
+
+It is possible to forbid usage of throw statements by providing certain options 
+to the compiler. For GNU compiler (`gcc`) please use `-fno-exceptions` 
+in conjunction with `-fno-unwind-tables` options. According to 
+[this page](https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_exceptions.html) 
+of `gcc` manual, all the throw statements are supposed to be replaced with call 
+to `abort()`. Unfortunately this information seems to be outdated. The behaviour 
+I see with my latest (at the moment of writing) `gcc` version 4.8 is a bit different.
+
+When the compilation is performed with the options specified above and there is 
+a `throw` statement in the code (for example `throw std::runtime_error("Some error")`), 
+the compilation fails with error message:
+```
+main.cpp:34:42: error: exception handling disabled, use -fexceptions to enable
+     throw std::runtime_error("Some error");
+```
+
+However, all the `throw` statements from standard library are compiled in and 
+cause the whole exception handling support code overhead to be included in the 
+final binary image, despite the compilation options forbidding the exceptions. 
+The test application 
+[test_cpp_exceptions](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_exceptions) 
+has simple code that causes the exceptions to be thrown:
+```cpp
+std::vector<int> v;
+v.at(100) = 0;
+```
+
+The generated code of the main function looks like this:
+```
+00015f60 <main>:
+   15f60:	e92d4008 	push	{r3, lr}
+   15f64:	e59f0000 	ldr	r0, [pc]	; 15f6c <main+0xc>
+   15f68:	eb0000a8 	bl	16210 <_ZSt20__throw_out_of_rangePKc>
+   15f6c:	00013868 	andeq	r3, r1, r8, ror #16
+```
+
+We also can see there are multiple exception related functions in the produced 
+listing, such as `__cxa_allocate_exception`, `__cxa_throw`, `_ZSt20__throw_out_of_rangePKc`,
+`_ZSt21__throw_bad_exceptionv`, etc... The size of the binary image will also 
+be huge (about 125KB) due to exceptions handling.
+
+If you would like to use STL classes that may throw exceptions, such as 
+`std::string`, `std::vector`, but refuse to pay the expensive price of extra 
+code space for exceptions handling, you'll have to do two things. First, make 
+sure that exception conditions never occur in your code run, i.e. 
+if `throw` statement is about to get executed, it means there is a bug in your 
+code. Second, override the definition of all the "__throw_*" functions the 
+compiler tries to use. In order to identify all these functions you'll have to 
+temporarily disable usage of standard library by passing `-nostdlib` compilation 
+option to your `gcc` compiler. For the code example above the compilation 
+without standard library will fail with error message:
+```
+main.cpp.o: In function `main':
+main.cpp:(.text.startup+0x8): undefined reference to `std::__throw_out_of_range(char const*)'
+collect2: error: ld returned 1 exit status
+```
+
+Let's try to override `std::__throw_out_of_range(char const*)`:
+```cpp
+namespace std
+{
+
+void __throw_out_of_range(char const*)
+{
+    while (true) {}
+}
+
+}
+
+```
+
+This time the compilation will succeed. Let's now compile the result code with 
+standard library included (without using `-nostdlib` option) and check the 
+binary image size. With my compiler the size is 1.3KB, which is much much better 
+than 120KB when exception handling is used.
+
+**CONCLUSION:** Excluding exception handling support is a well known and 
+widely used practice in C++ bare metal development. Even when relevant 
+compilation options are used (`-fno-exceptions` and `-fno-unwind-tables` in GNU compiler),
+there is still a need to override various `__throw_*` functions used by the 
+compiler and provided by the standard library.

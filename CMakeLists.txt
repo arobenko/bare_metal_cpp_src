@@ -17,7 +17,8 @@ if (NOT DIA_EXE)
 endif ()
 
 set (VERSION "v1.0")
-set (MAIN_FILE "${PROJECT_SOURCE_DIR}/bare_metal_cpp.adoc")
+set (TEXT_DIR "${PROJECT_SOURCE_DIR}/text")
+set (MAIN_FILE "${TEXT_DIR}/bare_metal_cpp.adoc")
 
 set(IMAGES_TARGET "images")
 set(PDF_TARGET "pdf")
@@ -61,8 +62,8 @@ endfunction ()
 function (pdf)
     add_custom_target(${PDF_TARGET} ALL
         COMMAND ${ASCIIDOCTOR_PDF_EXE} -a imagesdir=${PROJECT_BINARY_DIR} ${MAIN_FILE}
-        COMMAND ${CMAKE_COMMAND} -E rename "${PROJECT_SOURCE_DIR}/bare_metal_cpp.pdf" "${PROJECT_BINARY_DIR}/bare_metal_cpp_${VERSION}.pdf"
-        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        COMMAND ${CMAKE_COMMAND} -E rename "${TEXT_DIR}/bare_metal_cpp.pdf" "${PROJECT_BINARY_DIR}/bare_metal_cpp_${VERSION}.pdf"
+        WORKING_DIRECTORY ${TEXT_DIR}
         DEPENDS ${IMAGES_TARGET}
     )
 
@@ -75,7 +76,7 @@ function (site)
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/site/images
         COMMAND ${ASCIIDOCTOR_EXE} -D ${PROJECT_BINARY_DIR}/site -o index.html ${MAIN_FILE}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${BUILD_IMAGES_DIR} ${PROJECT_BINARY_DIR}/site/images/
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+        WORKING_DIRECTORY ${TEXT_DIR}
         DEPENDS ${IMAGES_TARGET}
     )
 endfunction ()

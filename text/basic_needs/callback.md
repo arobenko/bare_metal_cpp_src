@@ -1,0 +1,219 @@
+## Callback
+
+As has been mentioned in the [Benefits of C++](../overview/benefits.md) chapter, the main reason for choosing C++ over C is code reuse. When having some generic piece of code that tries to use platform specific code and needs to receive some kind of notifications from the latter, the need for some generic callback facility arises. C++ provides [std::function](http://en.cppreference.com/w/cpp/utility/functional/function) class for this purpose, it is possible to provide any callable object, such as [lambda function](http://en.cppreference.com/w/cpp/language/lambda) or [std::bind](http://en.cppreference.com/w/cpp/utility/functional/bind) expression:
+```cpp
+class LowLevelPeripheral {
+public:
+    template <typename TFunc>
+    void setEventCallback(TFunc&& func)
+    {
+        eventCallback_ = std::forward<TFunc>(func);
+    }
+
+    void eventHandler()
+    {
+        if (eventCallback_) {
+            eventCallback_(); // invoke registered callback object
+        }
+    }
+private:
+    std::function<void ()> eventCallback_;
+};
+
+class SomeGenericControl
+{
+public:
+    SomeGenericControl()
+    {
+        periph_.setEventCallback(
+            std::bind(&SomeGenericControl::eventCallbackHandler, this));
+    }
+
+    void eventCallbackHandler()
+    {
+        … // Handle the reported event.
+    }
+     
+private:
+     LowLevelPeripheral periph_;
+};
+```
+
+There are two problems with using [std::function](http://en.cppreference.com/w/cpp/utility/functional/function). It uses dynamic memory allocation and throws exception in case the function is invoked without assigning callable object to it first. As a result [std::function](http://en.cppreference.com/w/cpp/utility/functional/function) may be not suitable for use in most of the bare metal projects. We will have to implement something similar, but without dynamic memory allocations and without exceptions. Below is some short explanation of how to implement such a function class. The implementation of the `StaticFunction` class is part of [embxx](https://github.com/arobenko/embxx) library and its full code listing can be viewed [here](https://github.com/arobenko/embxx/blob/master/embxx/util/StaticFunction.h).
+
+The restriction of inability to use dynamic memory allocation requires to use additional parameter of storage size:
+```cpp
+template <typename TSignature, std::size_t TSize = sizeof(void*) * 3> 
+class StaticFunction; 
+```
+
+It seems that in most cases the callback object will contain pointer to member function, pointer to handling object and some additional single parameter. This is the reason for specifying the default storage space as equal to the size of 3 pointers. The “signature” template parameter is exactly the same as with [std::function](http://en.cppreference.com/w/cpp/utility/functional/function) plus an optional storage area size template parameter: 
+```cpp
+    typedef embxx::util::StaticFunction<void (int)> MyCallback;
+    typedef embxx::util::StaticFunction<
+        void (int, int), sizeof(void*) * 4> MyOtherCallback;
+```
+
+To properly implement `operator()`, there is a need to split the signature into the return type and rest of parameters. To achieve this the following template specialisation trick is used:
+```cpp
+template <std::size_t TSize, typename TRet, typename... TArgs> 
+class StaticFunction<TRet (TArgs...), TSize> 
+{ 
+public: 
+    ... 
+    TRet operator()(TArgs... args) const {...} 
+    ... 
+private:
+    typedef … StorageType; // Type of the storage area, 
+                           // will be explained later.
+    StorageType handler_; // Storage area where the callback object 
+                          // is stored
+    bool valid_; // flag indicating whether storage are contains 
+                 // valid callback, initialised to false in 
+                 // default constructor
+};
+```
+
+The `StaticFunction` object needs an ability to store any type of callable object as its internal data member and then invoke it in its `operator()` member function. To support this functionality we will require additional helper classes:
+```cpp
+class StaticFunction<TRet (TArgs...), TSize> 
+{ 
+    ... 
+private: 
+
+    class Invoker 
+    { 
+    public: 
+        virtual ~Invoker() {} 
+    
+        // virtual invocation function 
+        virtual TRet exec(TArgs... args) const = 0; 
+    }; 
+
+
+    template <typename TBound> 
+    class InvokerBound : public Invoker 
+    { 
+    public: 
+
+        template <typename TFunc> 
+        InvokerBound(TFunc&& func) 
+            : func_(std::forward<TFunc>(func)) 
+        { 
+        } 
+
+        virtual ~InvokerBound() {} 
+
+        virtual TRet exec(TArgs... args) const 
+        { 
+            return func_(std::forward<TArgs>(args)...); 
+        } 
+ 
+    private: 
+        TBound func_; 
+    }; 
+
+    ... 
+}; 
+```
+
+The callable object that will be stored in `handler_` data area and it will be of type `InvokerBound<...>` while invoked through interface of its base class `Invoker`.
+
+There is a need to properly define `StorageType` for the `handler_` data member:
+```cpp
+static const std::size_t StorageAreaSize = TSize + sizeof(Invoker);
+typedef typename 
+    std::aligned_storage< 
+        StorageAreaSize, 
+        std::alignment_of<Invoker>::value 
+   >::type StorageType; 
+```
+
+Note that `StorageType` is an uninitialised storage with alignment required to be able to store object of type `Invoker`. The `InvokerBound<...>` class will have the same alignment requirements as its base class `Invoker`, so it is safe to store any object of type `InvokerBound<...>` in the same area, as long as its size doesn't exceed the size of the `StorageType`.
+
+Also note that the actual size of the storage area is the requested TSize plus the area required to store the object of `Invoker` class. The size of `InvokerBound<...>` object is size of its private member plus the size of its base class `Invoker`, which will contain a single (hidden) pointer to its virtual table. 
+
+Any callable object may be assigned to `StaticFunction` using either constructor or assignment operator:
+```cpp
+template <std::size_t TSize, typename TRet, typename... TArgs> 
+class StaticFunction<TRet (TArgs...), TSize> 
+{ 
+public: 
+    ... 
+  
+    template <typename TFunc> 
+    StaticFunction(TFunc&& func) 
+        : valid_(true) 
+    { 
+        assignHandler(std::forward<TFunc>(func)); 
+    } 
+
+    StaticFunction& operator=(TFunc&& func) 
+    { 
+        destroyHandler(); 
+        assignHandler(std::forward<TFunc>(func)); 
+        valid_ = true; 
+        return *this; 
+    } 
+
+    ... 
+
+private: 
+    template <typename TFunc> 
+    void assignHandler(TFunc&& func) 
+    { 
+        typedef typename std::decay<TFunc>::type DecayedFuncType; 
+        typedef InvokerBound<DecayedFuncType> InvokerBoundType; 
+
+        static_assert(sizeof(InvokerBoundType) <= StorageAreaSize, 
+            "Increase the TSize template argument of the StaticFucntion"); 
+
+        static_assert(alignof(Invoker) == alignof(InvokerBoundType), 
+            "Alignment requirement for Invoker object must be the same " 
+            "as alignment requirement for InvokerBoundType type object"); 
+
+        new (&handler_) InvokerBoundType(std::forward<TFunc>(func)); 
+    } 
+
+    void destroyHandler() 
+    { 
+        if (valid_) { 
+            auto invoker = reinterpret_cast<Invoker*>(&handler_); 
+            invoker->~Invoker(); 
+        } 
+    } 
+};
+```
+
+Please pay attention that assignment operator has to call the destructor of previous function, that was assigned to it, before storing a new callable object in its place.
+
+Also note that there are compile time checks using [static_assert](http://en.cppreference.com/w/cpp/language/static_assert) that the size of the object to store in the storage area doesn't exceed the allocated size as well as alignment requirements still hold. 
+
+The invocation of the function will be implemented like this:
+```cpp
+template <std::size_t TSize, typename TRet, typename... TArgs> 
+class StaticFunction<TRet (TArgs...), TSize> 
+{ 
+public: 
+    ... 
+    TRet operator()(TArgs... args) const 
+    { 
+        GASSERT(valid_); 
+        auto invoker = reinterpret_cast<Invoker*>(&handler_); 
+        return invoker->exec(std::forward<TArgs>(args)...); 
+    } 
+    ... 
+};
+```
+
+Note that there are no exceptions in use and then the “must have” pre-condition for function invocation is that a valid callable object has been assigned to it. That is the reason for assertion check in the body of the function.
+
+To complete the implementation of `StaticFunction` class the following logic must also be implemented:
+1. Check whether the `StaticFunction` object is valid, i.e has any callable object assigned to it.
+1. Default construction - the function is invalid and cannot be invoked. 
+1. Copy/move construction + copy/move assignment functionality.
+1. Clearing the function (invalidating).
+1. Supporting both const and non-const `operator()` in the assigned callable object. It requires both const and non-const `operator()` implementation of `StaticFunction` as well as its internal `Invoker` and `InvokerBound<...>` classes.
+
+All this I leave as an exercise to to the reader. To see the complete implementation of the functionality described above open [this](https://github.com/arobenko/embxx/blob/master/embxx/util/StaticFunction.h) link. [Here](https://dl.dropboxusercontent.com/u/46999418/embxx/util_static_function_page.html) and [here](https://dl.dropboxusercontent.com/u/46999418/embxx/classembxx_1_1util_1_1StaticFunction_3_01TRet_07TArgs_8_8_8_08_00_01TSize_01_4.html) are doxygen generated documentation pages relevant to the `StaticFunction` class.
+

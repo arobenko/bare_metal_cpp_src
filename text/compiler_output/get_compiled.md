@@ -1,0 +1,210 @@
+## Get Simple Application Compiled
+
+Let's try to compile simple application of infinite loop, called [test_cpp_simple](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_simple).
+
+A linker script is required to get all the generated objects successfully linked. It states what code/data sections need to be loaded at what addresses as well as defines several symbols that may  be required by the sources. [Here](http://www.delorie.com/gnu/docs/binutils/ld_6.html) is a good manual of linker script syntax and [here](https://github.com/arobenko/embxx_on_rpi/blob/master/src/raspberrypi.ld) is the linker script I use to get applications linked for Raspberry Pi platform.
+
+Depending on your compiler, the link may fail because some symbols are missing. For example `__exidx_start` and `__exidx_end` are needed when the application is compiled with exceptions support, or `__bss_start__` and `__bss_end__` may be required by standard library if it contains the code for zeroing `.bss` section.
+
+Every application must have a startup code usually written in Assembler. This startup code must perform the following steps:
+1. Write the interrupt vector table at appropriate location (usually at address 0x0000).
+1. Set the stack pointers for every runtime mode.
+1. Zero the .bss section
+1. Call constructors of global (static) objects (applicable only to C++)
+1. Call the main function.
+
+It may happen that compiler generates some startup code for you, especially if you haven't excluded standard library (stdlib) from compilation. To check whether this is the case, we need to analyse assembler listing of the successfully compiled and linked image binary. All the generated files for a test application will reside in `<build_dir>/src/test_cpp/<app_name>`. The assembler listing file will have `kernel.list` name.
+
+**Side note**: the assembler listing can be generated using the following command:
+    > arm-none-eabi-objdump -D -S app_binary > app.list
+
+Open the listing file and look for function with **CRT** string in it. **CRT** 
+stands for “C Run-Time”.  When using [this](https://launchpad.net/gcc-arm-embedded) 
+compiler, the function that compiler has generated, is called `_mainCRTStartup`. 
+Let's take closer look what this function does.
+
+```
+00008198 <_mainCRTStartup>: 
+```
+
+Load the address of the end of the RAM and assign its value to stack pointer (sp).
+```
+    8198:	e59f30f0 	ldr	r3, [pc, #240]	; 8290 <_mainCRTStartup+0xf8> 
+    819c:	e3530000 	cmp	r3, #0 
+    81a0:	059f30e4 	ldreq	r3, [pc, #228]	; 828c <_mainCRTStartup+0xf4> 
+    81a4:	e1a0d003 	mov	sp, r3 
+```
+Set the value of sp for various modes, the sizes of the stacks are determined by the compiler itself.
+```
+    81a8:	e10f2000 	mrs	r2, CPSR 
+    81ac:	e312000f 	tst	r2, #15 
+    81b0:	0a000015 	beq	820c <_mainCRTStartup+0x74> 
+    81b4:	e321f0d1 	msr	CPSR_c, #209	; 0xd1 
+    81b8:	e1a0d003 	mov	sp, r3 
+    81bc:	e24daa01 	sub	sl, sp, #4096	; 0x1000 
+    81c0:	e1a0300a 	mov	r3, sl 
+    81c4:	e321f0d7 	msr	CPSR_c, #215	; 0xd7 
+    81c8:	e1a0d003 	mov	sp, r3 
+    81cc:	e2433a01 	sub	r3, r3, #4096	; 0x1000 
+    81d0:	e321f0db 	msr	CPSR_c, #219	; 0xdb 
+    81d4:	e1a0d003 	mov	sp, r3 
+    81d8:	e2433a01 	sub	r3, r3, #4096	; 0x1000 
+    81dc:	e321f0d2 	msr	CPSR_c, #210	; 0xd2 
+    81e0:	e1a0d003 	mov	sp, r3 
+    81e4:	e2433a02 	sub	r3, r3, #8192	; 0x2000 
+    81e8:	e321f0d3 	msr	CPSR_c, #211	; 0xd3 
+    81ec:	e1a0d003 	mov	sp, r3 
+    81f0:	e2433902 	sub	r3, r3, #32768	; 0x8000 
+    81f4:	e3c330ff 	bic	r3, r3, #255	; 0xff 
+    81f8:	e3c33cff 	bic	r3, r3, #65280	; 0xff00 
+    81fc:	e5033004 	str	r3, [r3, #-4] 
+    8200:	e9532000 	ldmdb	r3, {sp}^ 
+    8204:	e38220c0 	orr	r2, r2, #192	; 0xc0 
+    8208:	e121f002 	msr	CPSR_c, r2 
+    820c:	e243a801 	sub	sl, r3, #65536	; 0x10000 
+    8210:	e3b01000 	movs	r1, #0 
+    8214:	e1a0b001 	mov	fp, r1 
+    8218:	e1a07001 	mov	r7, r1
+```
+   
+Load the addresses of `__bss_start__` and `__bss_end__` symbols and zero all the area in between.
+```
+    821c:	e59f0078 	ldr	r0, [pc, #120]	; 829c <_mainCRTStartup+0x104> 
+    8220:	e59f2078 	ldr	r2, [pc, #120]	; 82a0 <_mainCRTStartup+0x108> 
+    8224:	e0522000 	subs	r2, r2, r0 
+    8228:	eb00004a 	bl	8358 <memset> 
+
+   ... Then comes some code, purpose of which is not clear
+```
+
+Call the `__libc_init_array` function provided by standard library which will initialise all the global objects. It will treat the area between `__init_array_start` and `__init_array_end` as list of pointers to initialisation functions and call them one by one.
+```
+    8278:	eb000014 	bl	82d0 <__libc_init_array>
+```
+
+Call the main function.
+```
+    8284:	eb000010 	bl	82cc <main>
+```
+
+If `main` function returns for some reason, call the exit function, which probably must be implemented as  infinite loop or jumping  back to the beginning of the startup code.
+```
+    8288:	eb000008 	bl	82b0 <exit>
+```
+
+Here comes local data
+```
+    828c:	00080000 	andeq	r0, r8, r0 
+    8290:	04008000 	streq	r8, [r0], #-0 
+	... 
+    829c:	00008458 	andeq	r8, r0, r8, asr r4 
+    82a0:	00008474 	andeq	r8, r0, r4, ror r4
+```
+
+The only missing stage in the startup process is updating the interrupt vector 
+table. After the latter is updated properly, it is possible to call the provided 
+`_mainCRTStartup` function. However, if your compiler doesn't provide such 
+function you have no other choice but to write the whole startup code yourself. 
+[Here](https://github.com/arobenko/embxx_on_rpi/blob/master/src/asm/startup.s) 
+is an example of such code.
+
+Please note, that `.bss` section by definition contains uninitialised data 
+that must be zeroed at startup. Even if you don't have uninitialised variables 
+in your code, zeroing `.bss` is a must have operation. This is because compiler 
+might put variables that are explicitly initialised to 0 into the `.bss` for 
+performance reasons and count on this section being zeroed at startup.
+
+Also note, that pointers to initialisation functions of global variables reside 
+in `.init.array` section. To initialise your global objects you just iterate 
+over all entries in this section and call them one by one.
+
+To implement the missing stage for use the following assembler instructions:
+```
+_entry: 
+    ldr pc,reset_handler_ptr        ;@  Processor Reset handler 
+    ldr pc,undefined_handler_ptr    ;@  Undefined instruction handler 
+    ldr pc,swi_handler_ptr          ;@  Software interrupt 
+    ldr pc,prefetch_handler_ptr     ;@  Prefetch/abort handler. 
+    ldr pc,data_handler_ptr         ;@  Data abort handler/ 
+    ldr pc,unused_handler_ptr       ;@ 
+    ldr pc,irq_handler_ptr          ;@  IRQ handler 
+    ldr pc,fiq_handler_ptr          ;@  Fast interrupt handler. 
+
+    ;@ Set the branch addresses 
+    reset_handler_ptr:      .word reset 
+    undefined_handler_ptr:  .word hang 
+    swi_handler_ptr:        .word hang 
+    prefetch_handler_ptr:   .word hang 
+    data_handler_ptr:       .word hang 
+    unused_handler_ptr:     .word hang 
+    irq_handler_ptr:        .word irq_handler 
+    fiq_handler_ptr:        .word hang 
+
+reset: 
+    ;@ Disable interrupts 
+    cpsid if 
+
+    ;@ Copy interrupt vector to its place 
+    ldr r0,=_entry 
+    mov r1,#0x0000 
+
+    ;@  Here we copy the branching instructions 
+    ldmia r0!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+    stmia r1!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+
+    ;@  Here we copy the branching addresses 
+    ldmia r0!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+    stmia r1!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+```
+
+Please note that at interrupt vector table that resides at address 0x0000 contains branch instructions to the appropriate handlers, not just addresses of the handlers. Let's take a closer look how these branching instructions look in our assembler listing file:
+```
+_entry: 
+    800c:	e59ff018 	ldr	pc, [pc, #24]	; 802c <reset_handler_ptr> 
+    8010:	e59ff018 	ldr	pc, [pc, #24]	; 8030 <undefined_handler_ptr> 
+    8014:	e59ff018 	ldr	pc, [pc, #24]	; 8034 <swi_handler_ptr> 
+    8018:	e59ff018 	ldr	pc, [pc, #24]	; 8038 <prefetch_handler_ptr> 
+    801c:	e59ff018 	ldr	pc, [pc, #24]	; 803c <data_handler_ptr> 
+    8020:	e59ff018 	ldr	pc, [pc, #24]	; 8040 <unused_handler_ptr> 
+    8024:	e59ff018 	ldr	pc, [pc, #24]	; 8044 <irq_handler_ptr> 
+    8028:	e59ff018 	ldr	pc, [pc, #24]	; 8048 <fiq_handler_ptr> 
+
+0000802c <reset_handler_ptr>: 
+    802c:	0000804c 	andeq	r8, r0, ip, asr #32 
+
+00008030 <undefined_handler_ptr>: 
+    8030:	000082b4 			; <UNDEFINED> instruction: 0x000082b4 
+
+00008034 <swi_handler_ptr>: 
+    8034:	000082b4 			; <UNDEFINED> instruction: 0x000082b4 
+
+00008038 <prefetch_handler_ptr>: 
+    8038:	000082b4 			; <UNDEFINED> instruction: 0x000082b4 
+
+0000803c <data_handler_ptr>: 
+    803c:	000082b4 			; <UNDEFINED> instruction: 0x000082b4 
+
+00008040 <unused_handler_ptr>: 
+    8040:	000082b4 			; <UNDEFINED> instruction: 0x000082b4 
+
+00008044 <irq_handler_ptr>: 
+    8044:	000082b8 			; <UNDEFINED> instruction: 0x000082b8 
+
+00008048 <fiq_handler_ptr>: 
+    8048:	000082b4 			; <UNDEFINED> instruction: 0x000082b4 
+```
+
+The branching instructions load address of the interrupt function to “pc” register. However the address of the function is stored somewhere and compiler generates access to this storage using relative offset to current “pc” register. This is the reason why we have to copy not just the branching instructions, but also the storage area where addresses of interrupt routines are stored:
+```
+    ;@ Copy interrupt vector to its place 
+    ldr r0,=_entry 
+    mov r1,#0x0000 
+
+    ;@  Here we copy the branching instructions 
+    ldmia r0!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+    stmia r1!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+
+    ;@  Here we copy the branching addresses 
+    ldmia r0!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+    stmia r1!,{r2,r3,r4,r5,r6,r7,r8,r9} 
+```

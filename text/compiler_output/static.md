@@ -1,0 +1,252 @@
+## Static Objects
+
+Let's analyse the code that initialises static objects. [test_cpp_statics](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_statics) is a simple application that has two static objects, one is in the global scope, the other is in the function scope. 
+```cpp
+class SomeObj 
+{ 
+public: 
+   static SomeObj& instanceGlobal(); 
+   static SomeObj& instanceLocal(); 
+
+private: 
+    SomeObj(int v1, int v2); 
+    int m_v1; 
+    int m_v2; 
+
+    static SomeObj globalObj; 
+}; 
+
+SomeObj SomeObj::globalObj(1, 2); 
+
+SomeObj& SomeObj::instanceGlobal() 
+{ 
+    return globalObj; 
+} 
+
+SomeObj& SomeObj::instanceLocal() 
+{ 
+    static SomeObj localObj(3, 4); 
+    return localObj; 
+} 
+
+int main(int argc, const char** argv) 
+{ 
+    static_cast<void>(argc); 
+    static_cast<void>(argv); 
+
+    auto& glob = SomeObj::instanceGlobal(); 
+    auto& local = SomeObj::instanceLocal(); 
+    static_cast<void>(glob); 
+    static_cast<void>(local); 
+
+    while (true) {}; 
+    return 0; 
+} 
+```
+
+Note, that compiler will try to inline the code above if implemented in the 
+same file. To properly analyse the code that initialises global variables, 
+you should put implementation of constructor and `instanceGlobal()`/`instanceLocal()` 
+functions into separate files. If `-nostdlib` option is passed to the compiler 
+to exclude linking with standard library, the compilation of the code above will 
+fail with following error:
+```
+main.cpp:(.text.startup+0x1c): undefined reference to `__cxa_guard_acquire' 
+main.cpp:(.text.startup+0x3c): undefined reference to `__cxa_guard_release'
+```
+
+It means that compiler attempts to make static variables initialisation thread-safe. The get it compiled you have to either implement the locking functionality yourself or allow compiler to do it in an unsafe way by adding `-fno-threadsafe-statics` compilation option. I think it is quite safe to use this option in the bare-metal development if you make sure the statics are not accessed in the interrupt context or have been initialised at the beginning of `main()` function before any interrupts are enabled. To grab a reference to such object without any use is enough:
+```cpp
+    auto& local = SomeObj::instanceLocal(); 
+    static_cast<void>(local); 
+```
+
+Now, let's analyse the initialisation of `globalObj`. The `.init.array` section contains pointer to initialisation function `_GLOBAL__sub_I__ZN7SomeObj9globalObjE`.
+
+Disassembly of section .init.array:
+```
+00008180 <__init_array_start>: 
+    8180:	00008154 	andeq	r8, r0, r4, asr r1 
+```
+
+The initialisation function loads the address of the object and passes it to the constructor of `SomeObj` together with the initialisation parameters (“1” and “2” integer values).
+```
+00008154 <_GLOBAL__sub_I__ZN7SomeObj9globalObjE>: 
+    8154:	e59f0008 	ldr	r0, [pc, #8]	; 8164 <_GLOBAL__sub_I__ZN7SomeObj9globalObjE+0x10> 
+    8158:	e3a01001 	mov	r1, #1 
+    815c:	e3a02002 	mov	r2, #2 
+    8160:	eaffffee 	b	8120 <_ZN7SomeObjC1Eii> 
+    8164:	00008168 	andeq	r8, r0, r8, ror #2 
+
+00008168 <_ZN7SomeObj9globalObjE>: 
+	... 
+
+```
+
+The code above loads the address of the global object (`0x00008168`) into **r0**, and initialisation parameters into **r1** and **r2**, then invokes the constructor of `SomeObj`.
+
+Please remember to call all the initialisation functions from `.init.array` section in your startup code before calling the `main()` function.
+
+In the linker file:
+```
+    .init.array :
+    {
+        __init_array_start = .;
+        *(.init_array)
+        *(.init_array.*)
+        __init_array_end = .;
+    } > RAM
+```
+
+In the startup code:
+```
+    ;@ Call constructors of all global objects
+    ldr r0, =__init_array_start
+    ldr r1, =__init_array_end
+
+globals_init_loop:
+    cmp     r0,r1
+    it      lt
+    ldrlt   r2, [r0], #4
+    blxlt   r2
+    blt     globals_init_loop
+
+    ;@ Main function
+    bl main
+    b reset ;@ restart if main function returns
+
+```
+
+However, if standard library is **NOT** excluded explicitly from the compilation, the `__libc_init_array` provided by the standard library may be used:
+```
+    ;@ Call constructors of all global objects
+    bl	__libc_init_array
+
+    ;@ Main function
+    bl main
+    b reset ;@ restart if main function returns
+
+```
+
+Let's also perform analysis of initialisation of `localObj` in `SomeObj::instanceLocal()`. 
+```
+000080e4 <_ZN7SomeObj13instanceLocalEv>: 
+    80e4:	e92d4010 	push	{r4, lr} 
+    80e8:	e59f4028 	ldr	r4, [pc, #40]	; 8118 <_ZN7SomeObj13instanceLocalEv+0x34> 
+    80ec:	e5943008 	ldr	r3, [r4, #8] 
+    80f0:	e3130001 	tst	r3, #1 
+    80f4:	1a000005 	bne	8110 <_ZN7SomeObj13instanceLocalEv+0x2c> 
+    80f8:	e284000c 	add	r0, r4, #12 
+    80fc:	e3a01003 	mov	r1, #3 
+    8100:	e3a02004 	mov	r2, #4 
+    8104:	eb000005 	bl	8120 <_ZN7SomeObjC1Eii> 
+    8108:	e3a03001 	mov	r3, #1 
+    810c:	e5843008 	str	r3, [r4, #8] 
+    8110:	e59f0004 	ldr	r0, [pc, #4]	; 811c <_ZN7SomeObj13instanceLocalEv+0x38> 
+    8114:	e8bd8010 	pop	{r4, pc} 
+    8118:	00008168 	andeq	r8, r0, r8, ror #2 
+    811c:	00008174 	andeq	r8, r0, r4, ror r1 
+```
+
+The code above loads the address of the flag that indicates that the object was already initialised into **r4**, then loads the value into **r3** and checks it using `tst` instruction. If the flag indicates that the object wasn't initialised, the constructor of the object is called and the flag value is updated prior to returning address of the object.  Note that `tst r3, #1` instruction performs binary **AND** between value **r3** and integer value **#1**, then next `bne` instruction performs branch if result is not 0, i.e. the object was already initialised. 
+
+**CONCLUSION**: Access to global objects are a bit cheaper than access to local static ones, because access to the latter involves a check whether the object was already initialised.
+
+### Custom Destructors
+And what about destruction of static objects with non-trivial destructors? Let's add a destructor to the above class and try to compile: 
+```cpp
+class SomeObj 
+{ 
+public: 
+   ~SomeObj(); 
+    …
+}
+```
+
+Somewhere in *.cpp file:
+```cpp
+SomeObj::~SomeObj() {}
+```
+
+This time the compilation will fail with following errors:
+```
+CMakeFiles/03_test_statics.dir/SomeObj.cpp.o: In function `SomeObj::instanceLocal()': 
+SomeObj.cpp:(.text+0x44): undefined reference to `__aeabi_atexit' 
+SomeObj.cpp:(.text+0x58): undefined reference to `__dso_handle' 
+CMakeFiles/03_test_statics.dir/SomeObj.cpp.o: In function `_GLOBAL__sub_I__ZN7SomeObj9globalObjE': 
+SomeObj.cpp:(.text.startup+0x28): undefined reference to `__aeabi_atexit' 
+SomeObj.cpp:(.text.startup+0x34): undefined reference to `__dso_handle' 
+```
+
+According to [this](http://infocenter.arm.com/help/topic/com.arm.doc.ihi0041d/IHI0041D_cppabi.pdf) 
+document, the `__aeabi_atexit` function is used to register pointer to the 
+destructor function together with pointer to the relevant static object to be 
+destructed after `main` function returns. The reason for this behaviour is that 
+these objects must be destructed in the opposite order to which they were 
+constructed. The compiler cannot know the exact construction order for local 
+static objects. There may even be some static objects are not constructed at all. 
+The `__dso_handle` is a global pointer to the current address where the next 
+**{destructor_ptr, object_ptr}** pair will be stored.
+The `main` function of most bare metal applications is not supposed to return 
+and global/static objects will not be destructed. In this case it will be enough 
+to implement the required function the following way:
+```cpp
+extern "C" int __aeabi_atexit( 
+    void *object, 
+    void (*destructor)(void *), 
+    void *dso_handle) 
+{ 
+    static_cast<void>(object); 
+    static_cast<void>(destructor); 
+    static_cast<void>(dso_handle); 
+    return 0; 
+} 
+
+void* __dso_handle = nullptr;
+```
+
+However, if your `main` function returns and then the code jumps back to the 
+initialisation/reset routine, there is a need to properly perform destruction of 
+global/static objects. You'll have to allocate enough space to store all the 
+necessary **{destructor_ptr, object_ptr}** pairs, then in `__aeabi_atexit` 
+function store the pair in the area pointed by `__dso_handle`, while incrementing 
+value of later. Note, that `dso_handle` parameter to the `__aeabi_atexit` function 
+is actually a pointer to the global `__dso_handle` value. Then, when the 
+`main` function returns, invoke the stored destructors in the opposite order 
+while passing addresses of the relevant objects as their first arguments.
+
+To verify all the stated above let's take a look again at the generated code of 
+initialisation function (after the destructor was added):
+```
+00008170 <_GLOBAL__sub_I__ZN7SomeObj9globalObjE>: 
+    8170:	e92d4010 	push	{r4, lr} 
+    8174:	e59f4020 	ldr	r4, [pc, #32]	; 819c <_GLOBAL__sub_I__ZN7SomeObj9globalObjE+0x2c> 
+    8178:	e3a01001 	mov	r1, #1 
+    817c:	e1a00004 	mov	r0, r4 
+    8180:	e3a02002 	mov	r2, #2 
+    8184:	ebffffeb 	bl	8138 <_ZN7SomeObjC1Eii> 
+    8188:	e1a00004 	mov	r0, r4 
+    818c:	e59f100c 	ldr	r1, [pc, #12]	; 81a0 <_GLOBAL__sub_I__ZN7SomeObj9globalObjE+0x30> 
+    8190:	e59f200c 	ldr	r2, [pc, #12]	; 81a4 <_GLOBAL__sub_I__ZN7SomeObj9globalObjE+0x34> 
+    8194:	e8bd4010 	pop	{r4, lr} 
+    8198:	eaffffe9 	b	8144 <__aeabi_atexit> 
+    819c:	000081a8 	andeq	r8, r0, r8, lsr #3 
+    81a0:	00008140 	andeq	r8, r0, r0, asr #2 
+    81a4:	000081bc 			; <UNDEFINED> instruction: 0x000081bc 
+
+00008140 <_ZN7SomeObjD1Ev>: 
+    8140:	e12fff1e 	bx	lr 
+
+000081bc <__dso_handle>: 
+    81bc:	00000000 	andeq	r0, r0, r0 
+```
+
+Indeed, the call to the constructor immediately followed by the call to 
+`__aeabi_atexit` with address of the object in **r0** (first parameter), 
+address of the destructor in **r1** (second parameter) and address of 
+`__dso_handle` in **r2** (third parameter).
+
+**CONCLUSION**: It is better to design the “main” function to contain infinite 
+loop and never return to save the implementation of destructing global/static 
+objects functionality.
+
