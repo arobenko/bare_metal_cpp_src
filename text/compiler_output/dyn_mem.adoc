@@ -1,16 +1,20 @@
-## Dynamic Memory Allocation
-Let's try to compile simple application that uses dynamic memory allocation. The [test_cpp_vector](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_vector) application contains the following code:
+=== Dynamic Memory Allocation ===
+Let's try to compile simple application that uses dynamic memory allocation. The 
+https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_vector[test_cpp_vector] 
+application contains the following code:
 
-```cpp
+[source, c++]
+----
 std::vector<int> v; 
 static const int MaxVecSize = 256; 
 for (int i = 0; i < MaxVecSize; ++i) { 
     v.push_back(i); 
 }
-```
+----
 
 It may happen that linking operation will fail with multiple referenced symbols being undefined:
-```
+[source]
+----
 unwind-arm.c:(.text+0x224): undefined reference to `__exidx_end' 
 unwind-arm.c:(.text+0x228): undefined reference to `__exidx_start' 
 /usr/bin/../lib/gcc/arm-none-eabi/4.8.3/../../../../arm-none-eabi/lib/libc.a(lib_a-abort.o): In function `abort': 
@@ -34,23 +38,26 @@ lseekr.c:(.text._lseek_r+0x20): undefined reference to `_lseek'
 /usr/bin/../lib/gcc/arm-none-eabi/4.8.3/../../../../arm-none-eabi/lib/libc.a(lib_a-readr.o): In function `_read_r': 
 readr.c:(.text._read_r+0x20): undefined reference to `_read' 
 collect2: error: ld returned 1 exit status 
-```
+----
 
-The symbols `__exidx_start` and `__exidx_end` are required to indicate start and end of `.ARM.exidx` section. It is used for exception handling. They must be defined in the linker script:
-```
+The symbols `++__exidx_start++` and `++__exidx_end++` are required to indicate start and end of 
+`.ARM.exidx` section. It is used for exception handling. They must be defined in the linker script:
+[source]
+----
 .ARM.exidx : 
 { 
     __exidx_start = .; 
     *(.ARM.exidx* .gnu.linkonce.armexidx.*) 
     __exidx_end = .; 
 } >RAM 
-```
+----
 
-The dynamic memory allocation will require implementation of `_sbrk` function which will be used to allocate chunks of memory for the C/C++ heap management.
+The dynamic memory allocation will require implementation of `_sbrk` function which will be used 
+to allocate chunks of memory for the C/C{plus}{plus} heap management.
 
 All other symbols will be required to properly support exceptions which are used 
-by C++ heap management system. 
-[Here](https://sourceware.org/newlib/libc.html#Syscalls) is a good resource, 
+by C{plus}{plus} heap management system. 
+https://sourceware.org/newlib/libc.html#Syscalls[Here] is a good resource, 
 that lists all the system calls, the developer may need to implement, to get 
 the application compiled.
 
@@ -59,8 +66,15 @@ Now, after successful compilation, take a good look at the size of the images of
 **Side note**: The image can be generated out of elf binary using the following instruction:
     > arm-none-eabi-objcopy <elf_executable> -O binary <binary_image_path>
 
-You may notice that size of [test_cpp_vector](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_vector) image is greater by approximately 100K than [test_cpp_simple](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_simple). It is due to C++ heap management and exceptions handling. Let's try to see what happens to the size of the application if "C++" heap is replaced with “C” one without exceptions. You will have to override all the global C++ operators responsible for memory allocation/deallocation:
-```cpp
+You may notice that size of 
+https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_vector[test_cpp_vector] image 
+is greater by approximately 100K than 
+https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_simple[test_cpp_simple]. 
+It is due to C{plus}{plus} heap management and exceptions handling. Let's try to see what happens to the size 
+of the application if "C{plus}{plus}" heap is replaced with “C” one without exceptions. 
+You will have to override all the global C{plus}{plus} operators responsible for memory allocation/deallocation:
+[source, c++]
+----
 #include <cstdlib> 
 #include <new> 
 
@@ -103,30 +117,36 @@ void operator delete[](void *p,  std::nothrow_t) noexcept
 { 
     operator delete(p); // Same as regular delete
 } 
-```
+----
 
-Please compile the [test_cpp_vector](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_vector) application again, create its image and take a look at its size. It will be much closer to the size of the [test_cpp_simple](https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_simple) image. In fact, you may not even need majority of the system call functions you have implemented before. Try to remove them one by one and see whether linker still reports “undefined reference” to these symbols. 
+Please compile the 
+https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_vector[test_cpp_vector] 
+application again, create its image and take a look at its size. It will be much closer to the size 
+of the https://github.com/arobenko/embxx_on_rpi/tree/master/src/test_cpp/test_cpp_simple[test_cpp_simple]
+image. In fact, you may not even need majority of the system call functions you have implemented before. 
+Try to remove them one by one and see whether linker still reports “undefined reference” to these symbols. 
 
-**CONCLUSION**: Usage of C++ heap brings a significant code size overhead. 
+**CONCLUSION**: Usage of C{plus}{plus} heap brings a significant code size overhead. 
 It is a good practice to override implementation of `new` and `delete` operators 
-with usage of `malloc` and `free` when using C++ in bare metal development. 
+with usage of `malloc` and `free` when using C{plus}{plus} in bare metal development. 
 Note that in this case, if memory allocation fails 
-[nullptr](http://en.cppreference.com/w/cpp/types/nullptr_t) will be returned 
+http://en.cppreference.com/w/cpp/types/nullptr_t[nullptr] will be returned 
 instead of throwing 
-[std::bad_alloc](http://en.cppreference.com/w/cpp/memory/new/bad_alloc) exception, 
-so beware of third party C++ libraries that count on exception been thrown and 
+http://en.cppreference.com/w/cpp/memory/new/bad_alloc[std::bad_alloc] exception, 
+so beware of third party C{plus}{plus} libraries that count on exception been thrown and 
 do not check the returned value form 
-[operator new](http://en.cppreference.com/w/cpp/memory/new/operator_new).
+http://en.cppreference.com/w/cpp/memory/new/operator_new[operator new].
 
-### Excluding Usage of Dynamic Memory
+==== Excluding Usage of Dynamic Memory ====
 
-The dynamic memory allocation is a core part of conventional C++. However, in 
+The dynamic memory allocation is a core part of conventional C{plus}{plus}. However, in 
 some bare-metal products the usage of dynamic memory may be problematic and/or 
 forbidden. The only way (I know of) to make to compilation fail, if dynamic 
 memory is used, is to exclude standard library altogether. With `gcc` compiler 
 it is achieved by using `-nostdlib` compilation option. 
 
-Excluding standard library from the compilation will remove the whole C++ 
+Excluding standard library from the compilation will remove the whole C{plus}{plus} 
 run-time environment, which includes dynamic memory (heap) management and 
 exception handling. The implication of using this compilation option will be 
-described later in [Removing Standard Library and C++ Runtime](nostdlib.md) section.
+described later in <<compiler_output-nostdlib>>.
+

@@ -1,15 +1,16 @@
 == Overview ==
-Once in a while I encounter a question whether C++ is suitable for embedded development and 
-bare metal development in particular. There are multiple articles of how C++ is superior to C, 
-that everything you can do in C you can do in C++ with a lot of extras, and that it should 
+Once in a while I encounter a question whether C{plus}{plus} is suitable for embedded development and 
+bare metal development in particular. There are multiple articles of how C{plus}{plus} is superior to C, 
+that everything you can do in C you can do in C{plus}{plus} with a lot of extras, and that it should 
 be used even with bare metal development. However, I haven't found many practical guides or 
-tutorials of how to use C++ superiority and boost development process compared to conventional 
+tutorials of how to use C{plus}{plus} superiority and boost development process compared to conventional 
 approach of using “C” programming language. With this book I hope to explain and show examples 
 of how to implement **soft** real time systems without prioritising interrupts and without 
 any need for complex real time task scheduling. Hopefully it will help someone to get started 
-with using C++ in embedded bare metal development.
+with using C{plus}{plus} in embedded bare metal development.
 
-This work is licensed under a http://creativecommons.org/licenses/by-nc-sa/4.0/[Commons Attribution-NonCommercial-ShareAlike 4.0 International License].
+This work is licensed under a 
+http://creativecommons.org/licenses/by-nc-sa/4.0/[Commons Attribution-NonCommercial-ShareAlike 4.0 International License].
 
 image::images/cc-by-nd.png[]
 

@@ -1,32 +1,38 @@
-## Removing Standard Library and C++ Runtime
+[[compiler_output-nostdlib]]
+=== Removing Standard Library and C{plus}{plus} Runtime ===
 
-Due to platform RAM/ROM limitations it may be required to exclude not just support for exceptions and RTTI (compiling with `-fno-exceptions` `-fno-unwind-tables` `-fno-rtti`), but for dynamic memory allocation too. The latter includes passing `-nostdlib` option to the compiler.
+Due to platform RAM/ROM limitations it may be required to exclude not just support for 
+exceptions and RTTI (compiling with `-fno-exceptions` `-fno-unwind-tables` `-fno-rtti`), 
+but for dynamic memory allocation too. The latter includes passing `-nostdlib` option to the compiler.
 In case when standard library is excluded, there is no startup code help 
 provided by the compiler, the developer will have to implement all the startup stages: 
+
 * updating the interrupt vector table
 * setting up correct stack pointers for all the modes of execution 
 * zeroing `.bss` section 
 * calling initialisation functions for global objects
 * calling “main” function.
 
-[Here](https://github.com/arobenko/embxx_on_rpi/blob/master/src/asm/startup.s) is an example of such startup code.
+https://github.com/arobenko/embxx_on_rpi/blob/master/src/asm/startup.s[Here] is an example of such startup code.
 
 There also may be a need to provide an implementation of some functions or 
 definition of some global symbols. For example, if 
-[std::copy](http://en.cppreference.com/w/cpp/algorithm/copy) algorithm is used 
+http://en.cppreference.com/w/cpp/algorithm/copy[std::copy] algorithm is used 
 to copy multiple objects from place to place, the compiler might decide to use 
-[memcpy](http://en.cppreference.com/w/c/string/byte/memcpy) function provided by 
+http://en.cppreference.com/w/c/string/byte/memcpy[memcpy] function provided by 
 the standard library, and as the result the build process will fail with 
 “undefined reference” error. The same way, usage of 
-[std::fill](http://en.cppreference.com/w/cpp/algorithm/fill) algorithm may 
-require [memset](http://en.cppreference.com/w/c/string/byte/memset) function. 
+http://en.cppreference.com/w/cpp/algorithm/fill[std::fill] algorithm may 
+require http://en.cppreference.com/w/c/string/byte/memset[memset] function. 
 Be ready to implement them when needed.
 
 Another example is having call to 
-[std::bind](http://en.cppreference.com/w/cpp/utility/functional/bind) function 
-with [std::placeholders::_1](http://en.cppreference.com/w/cpp/utility/functional/placeholders), [std::placeholders::_2](http://en.cppreference.com/w/cpp/utility/functional/placeholders), etc. 
+http://en.cppreference.com/w/cpp/utility/functional/bind[std::bind] function 
+with http://en.cppreference.com/w/cpp/utility/functional/placeholders[std::placeholders::_1], 
+http://en.cppreference.com/w/cpp/utility/functional/placeholders[std::placeholders::_2], etc. 
 There will be a need to define these placeholders as global symbols:
-```cpp
+[source, c++]
+----
 #include <functional>
 namespace std 
 { 
@@ -40,7 +46,7 @@ decltype(std::placeholders::_4) _4;
 
 }  // namespace placeholders 
 }  // namespace std 
-```
+----
 
 Even if there is a need for the standard library in the product being developed, 
 it may be a good exercise as well as good debugging technique to temporarily 

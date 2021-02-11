@@ -1,16 +1,16 @@
 === Contents of This Book ===
 This document introduces several concepts that can be used in bare-metal development as well 
 as shows how they can be implemented using features of latest (at the time of writing) 
-C++11 standard. 
+C{plus}{plus}11 standard. 
 
-The code of generic components is implemented as part of  “Embedded C++ Library” project 
+The code of generic components is implemented as part of  “Embedded C{plus}{plus} Library” project 
 called “embxx”  and can be found at https://github.com/arobenko/embxx. It has GPLv3 licence.
 
 There is also a project that implements multiple simple bare metal applications using 
 https://github.com/arobenko/embxx[embxx] which can run on RaspberryPi platform. The source 
 code can be found at  https://github.com/arobenko/embxx_on_rpi. It also has GPLv3 licence.
 
-Both projects require gcc version 4.7 or higher, because of C++11 support requirement. 
+Both projects require gcc version 4.7 or higher, because of C{plus}{plus}11 support requirement. 
 They also use http://www.cmake.org[CMake] as their build system. The code has been tested 
 with following free toolchains:
 

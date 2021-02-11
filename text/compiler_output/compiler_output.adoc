@@ -1,0 +1,18 @@
+== Know Your Compiler Output ==
+
+To successfully use C{plus}{plus} language and its libraries in bare metal development it is important 
+to know what binary code compiler generates from the C{plus}{plus} source code. This section will 
+lead you through the process of building simple testing applications and analysis of 
+their binary code.
+
+include::test_apps.adoc[]
+include::get_compiled.adoc[]
+include::dyn_mem.adoc[]
+include::exceptions.adoc[]
+include::rtti.adoc[]
+include::nostdlib.adoc[]
+include::static.adoc[]
+include::abstract_classes.adoc[]
+include::templates.adoc[]
+include::tag_dispatch.adoc[]
+
