@@ -1,0 +1,9 @@
+== Basic Needs ==
+
+Prior to describing various embedded (bare metal) development concepts I'd like to cover 
+several basic needs that, I think, most developers will have to use in their products.
+
+include::assertion.adoc[]
+include::callback.adoc[]
+include::serialisation.adoc[]
+include::queue.adoc[]

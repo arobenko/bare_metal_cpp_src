@@ -1,3 +1,4 @@
+[[overview-benefits]]
 === Benefits of C{plus}{plus} ===
 The primary reason to prefer C{plus}{plus} over C is **code reuse**. Thanks to templates, 
 it is much easier to implement generic piece of code that can be reused between 

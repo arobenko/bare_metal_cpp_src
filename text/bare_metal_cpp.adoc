@@ -10,4 +10,5 @@ v1.0
 :revinfo!:
 
 include::overview/intro.adoc[]
-include::compiler_output/compiler_output.adoc[] 
+include::compiler_output/compiler_output.adoc[]
+include::basic_needs/basic_needs.adoc[] 

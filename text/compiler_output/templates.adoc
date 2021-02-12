@@ -1,3 +1,4 @@
+[[compiler_output-templates]]
 === Templates ===
 
 Templates are notorious for the code bloating they produce. Some organisations 
