@@ -1,3 +1,4 @@
+[[overview]]
 == Overview ==
 Once in a while I encounter a question whether C{plus}{plus} is suitable for embedded development and 
 bare metal development in particular. There are multiple articles of how C{plus}{plus} is superior to C, 

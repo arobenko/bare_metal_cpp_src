@@ -1,13 +1,24 @@
-## Event Loop
+[[basic_concepts-event_loop]]
+=== Event Loop ===
 
 Most bare-metal embedded products require only two modes of operation:
+
 * Interrupt (or service) mode
 * Non-interrupt (or user) mode.
 
-The job of the code, that is executed in interrupt mode, is to respond to hardware events (interrupts) by performing minimal job of updating various status registers and schedule proper handling of event (if applicable) to be executed in non-interrupt mode. In most projects the interrupt handlers are not prioritised, and the next hardware event (interrupt) won't be handled until the previously called interrupt handler returns, i.e. CPU is ready to return to non-interrupt mode. Therefore, it is important for the interrupt handler to do its job as quickly as possible.
+The job of the code, that is executed in interrupt mode, is to respond to hardware events 
+(interrupts) by performing minimal job of updating various status registers and schedule 
+proper handling of event (if applicable) to be executed in non-interrupt mode. In most 
+projects the interrupt handlers are not prioritised, and the next hardware event (interrupt) 
+won't be handled until the previously called interrupt handler returns, i.e. CPU is ready 
+to return to non-interrupt mode. Therefore, it is important for the interrupt handler to do its 
+job as quickly as possible.
 
-There are multiple ways to schedule the execution of event handling code in non-interrupt mode from code being executed in interrupt mode. One of the easiest and straightforward ones is to have some kind of global flag that indicates that event has occurred and the processing is required:
-```cpp
+There are multiple ways to schedule the execution of event handling code in non-interrupt mode 
+from code being executed in interrupt mode. One of the easiest and straightforward ones is to 
+have some kind of global flag that indicates that event has occurred and the processing is required:
+[source, c++]
+----
 bool g_buttonPressed = false; 
 
 void gpioInterruptHandler() 
@@ -39,12 +50,16 @@ int main(int argc, const char* argv[])
         }
     } 
 }
-```
+----
 
-It is quite clear that this approach is not scalable, i.e. will quickly become a mess when number of hardware events the code needs to handle grows. The events may also be handled not in the same order they occurred, which may create undesired races and side effects on some systems.
+It is quite clear that this approach is not scalable, i.e. will quickly become a mess when number 
+of hardware events the code needs to handle grows. The events may also be handled not in the same 
+order they occurred, which may create undesired races and side effects on some systems.
 
-Another widely used approach is to create a queue-like container (linked list or circular buffer) of event IDs which are handled in the similar event loop:
-```cpp
+Another widely used approach is to create a queue-like container (linked list or circular buffer) 
+of event IDs which are handled in the similar event loop:
+[source, c++]
+----
 enum EventId 
 { 
     EventId_ClockTick, 
@@ -89,14 +104,33 @@ int main(int argc, const char* argv[])
         }
     } 
 }
-```
+----
 
-The approach above is a bit better, it processes events in the same order they occur, but still has its own disadvantages. Sometimes there is a need to attach some extra information for the processing of the event. Usually it is done using global variables, which introduces some extra complexity to the code and possibility for races. The handling of some events may have several internal stages and require busy wait(s) during the processing. These busy waits may significantly delay the processing of other pending events. The usual way to resolve this kind of problem is to create several state machines, that process this kind of events in stages. Most of Real-Time OSes provide an ability to create independent tasks (threads), that can be used to perform independent complex multiple staged workflows while the OS performs context switching between them. Still, the code can very quickly become too complex and difficult to maintain.
+The approach above is a bit better, it processes events in the same order they occur, but still has 
+its own disadvantages. Sometimes there is a need to attach some extra information for the processing 
+of the event. Usually it is done using global variables, which introduces some extra complexity to 
+the code and possibility for races. The handling of some events may have several internal stages and 
+require busy wait(s) during the processing. These busy waits may significantly delay the processing 
+of other pending events. The usual way to resolve this kind of problem is to create several state 
+machines, that process this kind of events in stages. Most of Real-Time OSes provide an ability 
+to create independent tasks (threads), that can be used to perform independent complex multiple 
+staged workflows while the OS performs context switching between them. Still, the code can very quickly 
+become too complex and difficult to maintain.
 
-The approaches above are widely used in bare metal projects developed using C programming language. Using C++ language built-in features as well as ready to use classes from STL it is possible to simplify the complexity of the code and implement proper asynchronous handling of events, which is easier to debug and maintain. 
+The approaches above are widely used in bare metal projects developed using C programming language. 
+Using C{plus}{plus} language built-in features as well as ready to use classes from STL it is possible 
+to simplify the complexity of the code and implement proper asynchronous handling of events, 
+which is easier to debug and maintain. 
 
-I would recommend using a queue of callable objects created by [std::bind()](http://en.cppreference.com/w/cpp/utility/functional/bind) expressions or [lambda functions](http://en.cppreference.com/w/cpp/language/lambda). The conventional C++ way would be using [std::list](http://en.cppreference.com/w/cpp/container/list) of [std::function](http://en.cppreference.com/w/cpp/utility/functional/function) objects. However, these classes use dynamic memory allocation and throw exceptions, which may be not suitable for every bare metal project. Anyway, let's just demonstrate the idea using these two classes:
-```cpp
+I would recommend using a queue of callable objects created by 
+http://en.cppreference.com/w/cpp/utility/functional/bind[std::bind()] expressions or 
+http://en.cppreference.com/w/cpp/language/lambda[lambda functions]. The conventional C{plus}{plus} way 
+would be using http://en.cppreference.com/w/cpp/container/list[std::list] of 
+http://en.cppreference.com/w/cpp/utility/functional/function[std::function] objects. However, these 
+classes use dynamic memory allocation and throw exceptions, which may be not suitable for every bare metal 
+project. Anyway, let's just demonstrate the idea using these two classes:
+[source, c++]
+----
 typedef std::list<std::function<void ()> > Queue; 
 Queue handlers; 
 
@@ -176,12 +210,26 @@ int main(int argc, const char* argv[])
         }
     } 
 }
-```
+----
 
-This approach allows having complex processing of some events with many sub-stages and busy waits while still allowing other independent events being processed. All the handlers are executed in the same order they were pushed to the queue. There is an ability to bind multiples additional parameters together with the function call, which reduces a necessity to have global variables to pass values around. There is no need to maintain a list of various event IDs, explicitly define stages of state machine(s) or implement complex task switching between independent threads (tasks).
+This approach allows having complex processing of some events with many sub-stages and busy waits 
+while still allowing other independent events being processed. All the handlers are executed in 
+the same order they were pushed to the queue. There is an ability to bind multiples additional 
+parameters together with the function call, which reduces a necessity to have global variables 
+to pass values around. There is no need to maintain a list of various event IDs, explicitly define 
+stages of state machine(s) or implement complex task switching between independent threads (tasks).
 
-Now, let's try to get rid of dynamic memory allocation and possible exceptions. The only way to achieve this is to have a compile time constant that specifies the maximal size of the queue. The naive implementation would be using [StaticQueue](https://github.com/arobenko/embxx/blob/master/embxx/container/StaticQueue.h) of [StaticFunction](https://github.com/arobenko/embxx/blob/master/embxx/util/StaticFunction.h) objects described in [Basic Needs](../basic_needs/README.md) chapter. However, the [StaticFunction](https://github.com/arobenko/embxx/blob/master/embxx/util/StaticFunction.h) class definition requires compile time constant to specify the size of the area to store all the data of the callable object. It must be big enough to contain any possible callable object that will be pushed to the queue. For example:
-```cpp
+Now, let's try to get rid of dynamic memory allocation and possible exceptions. The only way to achieve 
+this is to have a compile time constant that specifies the maximal size of the queue. The naive 
+implementation would be using 
+https://github.com/arobenko/embxx/blob/master/embxx/container/StaticQueue.h[StaticQueue] of 
+https://github.com/arobenko/embxx/blob/master/embxx/util/StaticFunction.h[StaticFunction] objects described 
+in <<basic_needs-basic_needs>> chapter. However, the 
+https://github.com/arobenko/embxx/blob/master/embxx/util/StaticFunction.h[StaticFunction] class definition 
+requires compile time constant to specify the size of the area to store all the data of the callable object. 
+It must be big enough to contain any possible callable object that will be pushed to the queue. For example:
+[source, c++]
+----
 typedef embxx::util::StaticFunction<void (), sizeof(void*) * 10>  Func; 
 typedef embxx::container::StaticQueue<Func, 1024> Queue;
 
@@ -209,25 +257,32 @@ handlers.push_back(
         param7,
         param8,
         param9)); // Will consume the whole available space.
-```
+----
 
 The queue will look like this:
 
-![Queue of StaticFunction image](../image/event_loop_static_function.png)
+image::images/event_loop_static_function.png[Queue of StaticFunction image]
 
-It is quite clear that lots of space may be wasted and this approach must be optimised. What if we could push the callable object to the queue one after another regardless of their actual size with a bit of extra space overhead (such as pointer to v-table), that will help us to retrieve size of the object at runtime and remove appropriate number of bytes from such queue after the callable object did its job?
+It is quite clear that lots of space may be wasted and this approach must be optimised. What if we 
+could push the callable object to the queue one after another regardless of their actual size with a 
+bit of extra space overhead (such as pointer to v-table), that will help us to retrieve size of the 
+object at runtime and remove appropriate number of bytes from such queue after the callable object did its job?
 
-![Optimised queue image](../image/event_loop_optimised.png)
+image::images/event_loop_optimised.png[Optimised queue image]
 
 It looks much better. The space consumption is much more efficient.
 
 To properly support this type of queue we must:
-1. implement polymorphic behaviour when calling every handler with same interface.
-1. implement polymorphic behaviour to retrieve the size of single handler in order to know how many bytes are to be removed from the queue after the handler has been called.
-1. properly handle wrap-around cases when the pushed handler cannot fit into the area between the end of the queue and end of the allocated space.
+
+. implement polymorphic behaviour when calling every handler with same interface.
+. implement polymorphic behaviour to retrieve the size of single handler in order to know how many 
+bytes are to be removed from the queue after the handler has been called.
+. properly handle wrap-around cases when the pushed handler cannot fit into the area between the end of 
+the queue and end of the allocated space.
 
 The code of required classes will be like this:
-```cpp
+[source, c++]
+----
 class Task 
 { 
 public: 
@@ -277,10 +332,11 @@ public:
 private: 
     TTask task_; 
 }; 
-```
+----
 
 The definition of the Queue type will be:
-```cpp
+[source, c++]
+----
 typedef typename 
     std::aligned_storage< 
         sizeof(Task), 
@@ -289,12 +345,13 @@ typedef typename
 
 static const std::size_t ArraySize = TSize / sizeof(Task); 
 typedef embxx::container::StaticQueue<ArrayElemType, ArraySize> Queue; 
-```
+----
 
 `TSize` is a template parameter that specifies maximum size (in bytes) of the queue storage area.
 
 The code of pushing new handler to the queue will look like this:
-```cpp
+[source, c++]
+----
 template <typename TTask> 
 bool addHandler(TTask&& task) 
 { 
@@ -313,10 +370,12 @@ bool addHandler(TTask&& task)
     new (placePtr) TaskBoundType(std::forward<TTask>(task)); 
     return true; 
 } 
-```
+----
 
-Note, that job of `getAllocPlace()` function is to make sure that continuous storage area that is able to store the required callable object is created (by resizing the queue) and return pointer to this area.
-```cpp
+Note, that job of `getAllocPlace()` function is to make sure that continuous storage area that is 
+able to store the required callable object is created (by resizing the queue) and return pointer to this area.
+[source, c++]
+----
 ArrayElemType* getAllocPlace(std::size_t requiredQueueSize) 
 { 
     auto invalidIter = queue_.invalidIter(); 
@@ -343,12 +402,16 @@ ArrayElemType* getAllocPlace(std::size_t requiredQueueSize)
         return &queue_[curSize]; 
     } 
 } 
-```
+----
 
-In case of wrap-around, when there is not enough space between the end of the queue and end of its storage area, number of simple `Task` objects which do nothing (the body of exec() function is empty) are pushed to fill the space till the end of storage area to make the queue non-linearised, which in turn will allow creation of continuous area of required size in the second half of the circular queue.
+In case of wrap-around, when there is not enough space between the end of the queue and end of its 
+storage area, number of simple `Task` objects which do nothing (the body of exec() function is empty) 
+are pushed to fill the space till the end of storage area to make the queue non-linearised, which in 
+turn will allow creation of continuous area of required size in the second half of the circular queue.
 
 The event handling loop will be something like this:
-```cpp
+[source, c++]
+----
 while (true) { 
     ... 
     // Get an access pointer to next handler 
@@ -366,14 +429,20 @@ while (true) {
 
     ... 
 } 
-```
+----
 
-The only remaining thing is to create a convenient and generic interface to be able to add new handlers for execution from both interrupt and non-interrupt contexts.
+The only remaining thing is to create a convenient and generic interface to be able to add new handlers for 
+execution from both interrupt and non-interrupt contexts.
 
-### Analogy with Threads
+==== Analogy with Threads ====
 
-Before diving into implementation of such interface, I'd like to make an analogy between interrupt/non-interrupt execution modes and two threads. The inter-threads communication is managed using locks (such as [std::mutex](http://en.cppreference.com/w/cpp/thread/mutex)) and condition variables (such as [std::condition_variable_any](http://en.cppreference.com/w/cpp/thread/condition_variable_any)). Using this analogy the handlers execution loop (executed in non-interrupt thread) can be implemented like this:
-```cpp
+Before diving into implementation of such interface, I'd like to make an analogy between 
+interrupt/non-interrupt execution modes and two threads. The inter-threads communication is managed using 
+locks (such as http://en.cppreference.com/w/cpp/thread/mutex[std::mutex]) and condition variables (such as 
+http://en.cppreference.com/w/cpp/thread/condition_variable_any[std::condition_variable_any]). Using this 
+analogy the handlers execution loop (executed in non-interrupt thread) can be implemented like this:
+[source, c++]
+----
 std::mutex lock_; 
 std::condition_variable_any cond_; 
 ... 
@@ -398,10 +467,11 @@ while (true) {
     cond_.wait(lock_); 
     lock_.unlock(); 
 } 
-```
+----
 
 And adding new execution handler from any thread can be:
-```cpp
+[source, c++]
+----
 template <typename TTask> 
 bool addHandler(TTask&& task) 
 { 
@@ -409,22 +479,37 @@ bool addHandler(TTask&& task)
    ... // adding handler functionality 
    cond_.notify_all(); // notify the condition variable 
 }
-```
+----
 
-If we think about interrupt and non-interrupt execution modes as two threads, the locking in non-interrupt thread is equivalent to disabling interrupts; and waiting for condition variable to be notified is equivalent for waiting for interrupts (using `WFI` or `WFE` instructions in ARM architecture) while notification can be automatic due to pending interrupts or implemented using `SEV` instruction. However, our interrupt and non-interrupt mode threads  differ slightly from conventional threads. The non-interrupt mode one can be interrupted at any time by interrupt mode, while the interrupt mode “thread” won't be interrupted and doesn't actually need to protect itself from other thread's intervention.
+If we think about interrupt and non-interrupt execution modes as two threads, the locking in non-interrupt 
+thread is equivalent to disabling interrupts; and waiting for condition variable to be notified is equivalent 
+for waiting for interrupts (using `WFI` or `WFE` instructions in ARM architecture) while notification can 
+be automatic due to pending interrupts or implemented using `SEV` instruction. However, our interrupt 
+and non-interrupt mode threads  differ slightly from conventional threads. The non-interrupt mode one can be 
+interrupted at any time by interrupt mode, while the interrupt mode “thread” won't be interrupted and doesn't 
+actually need to protect itself from other thread's intervention.
 
-The whole logic of event handling loop in non-interrupt context described above is generic except locking (disabling interrupts) and waiting for new handlers to be added (waiting for interrupts) which are platform and architecture specific. As I've mentioned before, the whole idea of using C++ instead of C in bare metal development is to be able to write and reuse generic code while providing minimal platform specific hardware control functionality. The [embxx](https://github.com/arobenko/embxx) library provides [EventLoop](https://github.com/arobenko/embxx/blob/master/embxx/util/EventLoop.h) class that receives the locking and condition variable classes as template parameters and manages safe addition of new handlers and in-order execution of the latter in non-interrupt context. 
-```cpp
+The whole logic of event handling loop in non-interrupt context described above is generic except locking 
+(disabling interrupts) and waiting for new handlers to be added (waiting for interrupts) which are platform 
+and architecture specific. As I've mentioned before, the whole idea of using C{plus}{plus} instead of C 
+in bare metal development is to be able to write and reuse generic code while providing minimal platform 
+specific hardware control functionality. The https://github.com/arobenko/embxx[embxx] library provides 
+https://github.com/arobenko/embxx/blob/master/embxx/util/EventLoop.h[EventLoop] class that receives the 
+locking and condition variable classes as template parameters and manages safe addition of new handlers 
+and in-order execution of the latter in non-interrupt context. 
+[source, c++]
+----
 The class definition looks like this:
 template <std::size_t TSize, typename Tlock, typename TCond> 
 class EventLoop 
 { 
     ... 
 };
-```
+----
 
 The `TLock` class must expose the following public interface:
-```cpp
+[source, c++]
+----
 class PlatformLock 
 { 
 public: 
@@ -446,10 +531,11 @@ public:
     // also be empty function when interrupts are not prioritised. 
     void unlockInterruptCtx() {...} 
 };
-```
+----
 
 The `TCond` class must expose the following public interface:
-```cpp
+[source, c++]
+----
 class PlatformCond 
 { 
 public: 
@@ -465,10 +551,12 @@ public:
     // be terminated. 
     void notify() {...} 
 };
-```
+----
 
-The example of such classes for Raspberry Pi platform may be found [here](https://github.com/arobenko/embxx_on_rpi/blob/master/src/device/EventLoopDevices.h).
-```cpp
+The example of such classes for Raspberry Pi platform may be found 
+https://github.com/arobenko/embxx_on_rpi/blob/master/src/device/EventLoopDevices.h[here].
+[source, c++]
+----
 class InterruptLock 
 { 
 public: 
@@ -521,10 +609,11 @@ public:
         // to exit even with interrupts disabled 
     } 
 }; 
-```
+----
 
-The [EventLoop](https://github.com/arobenko/embxx/blob/master/embxx/util/EventLoop.h) class exposes the following public interface:
-```cpp
+The https://github.com/arobenko/embxx/blob/master/embxx/util/EventLoop.h[EventLoop] class exposes the following public interface:
+[source, c++]
+----
 template <std::size_t TSize, typename Tlock, typename TCond> 
 class EventLoop 
 { 
@@ -580,16 +669,23 @@ public:
     ///          execution. 
     void reset(); 
 }: 
-```
+----
 
-I'll leave the implementation of the functions above as an exercise to the reader. Don't forget to call `notify()` member function of condition variable when adding new handler to the empty queue. 
+I'll leave the implementation of the functions above as an exercise to the reader. Don't 
+forget to call `notify()` member function of condition variable when adding new handler to 
+the empty queue. 
 
-If needed, the reference implementation can be found [here](https://github.com/arobenko/embxx/blob/master/embxx/util/EventLoop.h).
+If needed, the reference implementation can be found 
+https://github.com/arobenko/embxx/blob/master/embxx/util/EventLoop.h[here].
 
-### Busy Loops 
+==== Busy Loops ====
 
-The event loop described above is an easy and convenient way to implement soft real-time systems. However, the main rule with such architecture is: **DON'T DO BUSY LOOPS!** It means, if there is a real need to perform a busy wait before proceeding to the next stage, do it by letting other events being handled as well. The `EventLoop` class also provides `busyWait()` member function that does exactly that. 
-```cpp
+The event loop described above is an easy and convenient way to implement soft real-time systems. 
+However, the main rule with such architecture is: *DON'T DO BUSY LOOPS!* It means, if there is a 
+real need to perform a busy wait before proceeding to the next stage, do it by letting other events 
+being handled as well. The `EventLoop` class also provides `busyWait()` member function that does exactly that. 
+[source, c++]
+----
 template <std::size_t TSize, typename Tlock, typename TCond> 
 class EventLoop 
 { 
@@ -631,5 +727,5 @@ public:
         static_cast<void>(result); 
     } 
 };
-```
+----
 

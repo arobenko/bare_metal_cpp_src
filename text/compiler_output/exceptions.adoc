@@ -1,3 +1,4 @@
+[[compiler_output-exceptions]]
 === Exceptions ===
 
 Exception handling is also a core feature of the conventional C{plus}{plus}. However, 

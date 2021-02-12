@@ -11,4 +11,6 @@ v1.0
 
 include::overview/intro.adoc[]
 include::compiler_output/compiler_output.adoc[]
-include::basic_needs/basic_needs.adoc[] 
+include::basic_needs/basic_needs.adoc[]
+include::basic_concepts/basic_concepts.adoc[] 
+include::peripherals/peripherals.adoc[] 

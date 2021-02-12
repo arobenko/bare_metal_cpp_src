@@ -1,4 +1,5 @@
-# Peripherals
+[[peripherals-peripherals]]
+== Peripherals ==
 
 It this chapter I will describe and give multiple examples of how to drive and control multiple hardware peripherals while using [Device-Driver-Component](../basic_concepts/device_driver_component.md) model in conjunction with [Event Loop](../basic_concepts/event_loop.md).
 
