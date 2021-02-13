@@ -1,6 +1,0 @@
-## Other
-
-There are many other peripherals and/or protocols (such as I2S, USB, one wire). The implementation and the main concepts should be pretty similar to the peripherals covered so far. At this stage I do not plan to do it in this book. At least not in the near future.
-
-Various micro-controllers may also support [DMA](http://en.wikipedia.org/wiki/Direct_memory_access) access to some peripherals. In this case the `Character` **Driver** that was covered in [UART](uart.md) chapter must be replaced with some kind of `Block` **Driver**, that will allow issuing of multiple read/write requests at the same time and will receive only "operation complete" notifications from the **Device**. I leave implementation of it as an excercise for the reader. At least for now.
-

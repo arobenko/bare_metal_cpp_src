@@ -1,3 +1,4 @@
+[[overview-contents]]
 === Contents of This Book ===
 This document introduces several concepts that can be used in bare-metal development as well 
 as shows how they can be implemented using features of latest (at the time of writing) 

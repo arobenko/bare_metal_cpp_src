@@ -1,3 +1,4 @@
+[[basic_needs-queue]]
 === Static (Fixed Size) Queue ===
 
 There is almost always a need to have some kind of a queuing functionality. A circular buffer is 

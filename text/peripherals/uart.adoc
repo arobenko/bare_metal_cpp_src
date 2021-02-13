@@ -1,9 +1,15 @@
-## UART
+[[peripherals-uart]]
+=== UART ===
 
-Our next stage will be to support debug logging via UART interface. In conventional C++ logging is performed using either [printf](http://en.cppreference.com/w/cpp/io/c/fprintf) function or [output streams](http://en.cppreference.com/w/cpp/io/basic_ostream) (such as [std::cout](http://en.cppreference.com/w/cpp/io/cout) or [std::cerr](http://en.cppreference.com/w/cpp/io/cerr)).
+Our next stage will be to support debug logging via UART interface. In conventional C{plus}{plus} 
+logging is performed using either http://en.cppreference.com/w/cpp/io/c/fprintf[printf] function or 
+http://en.cppreference.com/w/cpp/io/basic_ostream[output streams] (such as 
+http://en.cppreference.com/w/cpp/io/cout[std::cout] or 
+http://en.cppreference.com/w/cpp/io/cerr[std::cerr]).
 
 If `printf` is used the compilation may fail at the linking stage with following errors:
-```
+[source]
+----
 /usr/bin/../lib/gcc/arm-none-eabi/4.8.3/../../../../arm-none-eabi/lib/libc.a(lib_a-sbrkr.o): In function `_sbrk_r':
 sbrkr.c:(.text._sbrk_r+0x18): undefined reference to `_sbrk'
 /usr/bin/../lib/gcc/arm-none-eabi/4.8.3/../../../../arm-none-eabi/lib/libc.a(lib_a-writer.o): In function `_write_r':
@@ -19,14 +25,21 @@ lseekr.c:(.text._lseek_r+0x20): undefined reference to `_lseek'
 /usr/bin/../lib/gcc/arm-none-eabi/4.8.3/../../../../arm-none-eabi/lib/libc.a(lib_a-readr.o): In function `_read_r':
 readr.c:(.text._read_r+0x20): undefined reference to `_read'
 collect2: error: ld returned 1 exit status
-```
+----
 
-Once these functions are stubbed with empty bodies, the compilation will succeed, but the image size will be quite big (around 45KB). 
+Once these functions are stubbed with empty bodies, the compilation will succeed, but the image size 
+will be quite big (around 45KB). 
 
-The `_sbrk` function is required to support dynamic memory allocation. The `printf` function probably uses `malloc()` to allocate some temporary buffers. If we open the assembly listing file we will see calls to `<malloc>` and `<free>`. 
+The `++_sbrk++` function is required to support dynamic memory allocation. The `printf` function probably 
+uses `malloc()` to allocate some temporary buffers. If we open the assembly listing file we will see 
+calls to `<malloc>` and `<free>`. 
 
-The `_write` function is used to write characters into the standard output consol, which doesn't exist in embedded product. The developer must use this function implementation to write all the provided characters to UART serial interface. Many developers implement this function in a straightforward synchronous way with busy loop:
-```cpp
+The `++_write++` function is used to write characters into the standard output consol, which doesn't 
+exist in embedded product. The developer must use this function implementation to write all the provided 
+characters to UART serial interface. Many developers implement this function in a straightforward 
+synchronous way with busy loop:
+[source, c++]
+----
 extern "C" int _write(int file, char *ptr, int len)
 {
     int count = len;
@@ -40,39 +53,69 @@ extern "C" int _write(int file, char *ptr, int len)
     }
     return len;
 }
-```
+----
 
-In this case the call to `printf` function will be blocking and won't return until all the characters are written one by one to UART, which takes a lot of execution time. This approach is suitable for quick and dirty debugging, but will quickly become impractical when the project grows.
+In this case the call to `printf` function will be blocking and won't return until all the characters 
+are written one by one to UART, which takes a lot of execution time. This approach is suitable for 
+quick and dirty debugging, but will quickly become impractical when the project grows.
 
-In order to make the execution of `printf` quick, there must be some kind of interrupt driven component that is responsible to buffer all the provided characters and forward it to UART asynchronously one by one using "**TX buffer register is free**" kind of interrupts.
+In order to make the execution of `printf` quick, there must be some kind of interrupt driven component that 
+is responsible to buffer all the provided characters and forward it to UART asynchronously one by one using 
+"*TX buffer register is free*" kind of interrupts.
 
-One of disadvantages in using `printf` for logging is a necessity to specify an output format of the printed variables:
-```cpp
+One of disadvantages in using `printf` for logging is a necessity to specify an output format of 
+the printed variables:
+[source, c++]
+----
 std::int32_t i = ...; // some value
 printf("Value = %d\n");
-```
+----
 
-In case the type of the printed variable changes, the developer must remember to update type in the format string too. This is the reason why many C++ developers prefer using streams instead of `printf`:
-```cpp
+In case the type of the printed variable changes, the developer must remember to update type in the 
+format string too. This is the reason why many C{plus}{plus} developers prefer using streams instead 
+of `printf`:
+[source, c++]
+----
 std::int32_t i = ...; // some value
 std::cout << "Value = " << i << std::endl;
-```
-Even if type of printed variable changes the compiler will generate a call to appropriate overloaded `operator<<` of [std::ostream](http://en.cppreference.com/w/cpp/io/basic_ostream) and the value will be printed correctly. The developer will also have to implement the missing `_write` function to write provided characters somewhere (UART interface in our case).
+----
+Even if type of printed variable changes the compiler will generate a call to appropriate 
+overloaded `operator<<` of http://en.cppreference.com/w/cpp/io/basic_ostream[std::ostream] 
+and the value will be printed correctly. The developer will also have to implement the missing 
+`++_write++` function to write provided characters somewhere (UART interface in our case).
 
-However using C++ streams in bare metal development is often not an option. They use exceptions to handle error cases as well as [locales](http://en.cppreference.com/w/cpp/locale/locale) for formatting. The compilation of simple output statement with streams above created image of more than 500KB using [GNU Tools for ARM Embedded Processors](https://launchpad.net/gcc-arm-embedded) compiler. 
+However using C{plus}{plus} streams in bare metal development is often not an option. They 
+use exceptions to handle error cases as well as http://en.cppreference.com/w/cpp/locale/locale[locales] 
+for formatting. The compilation of simple output statement with streams above created image of more than 500KB using 
+https://launchpad.net/gcc-arm-embedded[GNU Tools for ARM Embedded Processors] compiler. 
 
-To summarise all the stated above, there may be a problem to use standard [printf](http://en.cppreference.com/w/cpp/io/c/fprintf) function or [output streams](http://en.cppreference.com/w/cpp/io/basic_ostream) for debug logging, especially in systems with small memory and where dynamic memory allocations and exceptions mustn't be used. Our ultimate goal will be creation of standard output stream like interface for debug logging while using asynchronous event handling with [Device-Driver-Component](../basic_concepts/device_driver_component.md) model and [Event Loop](../basic_concepts/event_loop.md) where most of the code is generic and only smal part of managing write of a single character to the UART interface is platform specific.
+To summarise all the stated above, there may be a problem to use standard 
+http://en.cppreference.com/w/cpp/io/c/fprintf[printf] function or 
+http://en.cppreference.com/w/cpp/io/basic_ostream[output streams] for debug logging, especially in systems 
+with small memory and where dynamic memory allocations and exceptions mustn't be used. Our ultimate goal 
+will be creation of standard output stream like interface for debug logging while using asynchronous event 
+handling with <<basic_concepts-device_driver_component>> model and <<basic_concepts-event_loop>> where 
+most of the code is generic and only smal part of managing write of a single character to the UART 
+interface is platform specific.
 
-Asyncrhonous read and write operations on the UART interface are very similar to the generic way of programming and handling asynchronous events described earlier in [Device-Driver-Component](../basic_concepts/device_driver_component.md) chapter.
+Asyncrhonous read and write operations on the UART interface are very similar to the generic way of 
+programming and handling asynchronous events described earlier in <<basic_concepts-device_driver_component>> chapter.
 
-### Writing to UART
+==== Writing to UART ====
 
-**Stage1** - Sending asynchronous buffer write request from the **Component** layer to **Driver** in event loop (non-interrupt) context.
+*Stage1* - Sending asynchronous buffer write request from the *Component* layer to *Driver* in 
+event loop (non-interrupt) context.
 
-![Image: Asyncrhonous write request](../image/character_driver_flow_write1.png)
+image::images/character_driver_flow_write1.png[Image: Asyncrhonous write request]
 
-The **Component** calls `asyncWrite()` member function of the **Driver** and provides pointer to the buffer, size of the buffer and the callback object to invoke when the write is complete. The `asyncWrite()` function needs to be able to receive any type of callable object, such as [std::bind](http://en.cppreference.com/w/cpp/utility/functional/bind) expression or [lambda function](http://en.cppreference.com/w/cpp/language/lambda). To achieve this the function must be templated:
-```cpp
+The *Component* calls `asyncWrite()` member function of the *Driver* and provides pointer to the buffer, 
+size of the buffer and the callback object to invoke when the write is complete. The `asyncWrite()` function 
+needs to be able to receive any type of callable object, such as 
+http://en.cppreference.com/w/cpp/utility/functional/bind[std::bind] expression or 
+http://en.cppreference.com/w/cpp/language/lambda[lambda function]. To achieve this the function must 
+be templated:
+[source, c++]
+----
 class CharacterDriver
 {
 public:
@@ -84,19 +127,32 @@ public:
         std::size_t bufSize, 
         TCallbackFunc&& func);
 };
-```
-According to the convention mentioned [earlier](../basic_concepts/device_driver_component.md), the callback must receive an error status of whether the operation is successful as its first parameter. When performing asynchronous operation on the buffer, it can be required to know how many characters have been read / written before the error occurred, in case the operation wasn't successful. For this purpose such callback object must receive number of bytes written as the second parameter, i.e. expose the `void (const embxx::error::ErrorStatus& err, std::size_t bytesTransferred)` signature.
+----
+According to the convention mentioned <<basic_concepts-device_driver_component, earlier>>, 
+the callback must receive an error status of whether the operation is successful as its first parameter. 
+When performing asynchronous operation on the buffer, it can be required to know how many characters have 
+been read / written before the error occurred, in case the operation wasn't successful. For this purpose 
+such callback object must receive number of bytes written as the second parameter, i.e. expose 
+the `void (const embxx::error::ErrorStatus& err, std::size_t bytesTransferred)` signature.
 
-When the **Driver** receives the asynchronous operation request, it forwards it to the **Device**, letting the latter know how many bytes will be written during the whole process. Please note that **Driver** uses [embxx::device::context::EventLoop](https://dl.dropboxusercontent.com/u/46999418/embxx/structembxx_1_1device_1_1context_1_1EventLoop.html) tag parameter to specify that `startWrite()` member function of **Device** is invoked in event loop (non-interrut) context. The job of the **Device** object is to enable appropriate interrupts and return immediately. Once the interrupt occurs, the stage of writing the data begins.
+When the *Driver* receives the asynchronous operation request, it forwards it to the *Device*, 
+letting the latter know how many bytes will be written during the whole process. Please note that *Driver* uses `embxx::device::context::EventLoop` tag parameter to specify that `startWrite()` member function of 
+*Device* is invoked in event loop (non-interrut) context. The job of the *Device* object is to enable 
+appropriate interrupts and return immediately. Once the interrupt occurs, the stage of writing the data begins.
 
-**Stage2** - Writing provided data.
+*Stage2* - Writing provided data.
 
-![Image: Writing provided data](../image/character_driver_flow_write2.png)
+image::images/character_driver_flow_write2.png[Image: Writing provided data]
 
-Once the interrupt of "TX available" occurs, the **Device** must let the **Driver** know. There must obviously be some kind of callback involved, which **Driver** must provide during its construction / initialisation stage. Let's assume at this moment that such assignment was successfully done, and **Device** is capable of successfully notifying the **Driver**, that there is an ability to write character to TX FIFO of the peripheral.
+Once the interrupt of "TX available" occurs, the *Device* must let the *Driver* know. There must 
+obviously be some kind of callback involved, which *Driver* must provide during its 
+construction / initialisation stage. Let's assume at this moment that such assignment was successfully 
+done, and *Device* is capable of successfully notifying the *Driver*, that there is an ability to write 
+character to TX FIFO of the peripheral.
 
-When the **Driver** receives such notification, it attempts to write as many characters as possible:
-```cpp
+When the *Driver* receives such notification, it attempts to write as many characters as possible:
+[source, c++]
+----
 typedef embxx::device::context::Interrupt InterruptContext;
 
 void canWriteCallback()
@@ -111,32 +167,48 @@ void canWriteCallback()
         ++currentWriteBufPtr_;
     }
 }
-```
-This is because when "TX available" interrupt occurs, there may be a place for multiple characters to be sent, not just one. Doing checks and writes in a loop may save many CPU cycles.
+----
+This is because when "TX available" interrupt occurs, there may be a place for multiple characters to 
+be sent, not just one. Doing checks and writes in a loop may save many CPU cycles.
 
-Please note, that all these calls are performed in interrupt context. They are marked in red in the picture above.
+Please note, that all these calls are performed in interrupt context. They are marked in red in 
+the picture above.
 
-Once the Tx FIFO of the underlying **Device** is full or there are no more characters to write, the callback returns. The whole cycle described above is repeated on every "TX available" interrupt until the whole provided buffer is sent to the **Device** for writing.
+Once the Tx FIFO of the underlying *Device* is full or there are no more characters to write, 
+the callback returns. The whole cycle described above is repeated on every "TX available" interrupt until 
+the whole provided buffer is sent to the *Device* for writing.
 
-**Stage3** - Notifying caller about completion:
+*Stage3* - Notifying caller about completion:
 
-Once the whole buffer is sent to the **Device** for writing, the **Driver** is aware that there will be no more writes performed. However it doesn't report completion until the **Device** itself calls appropriate callback indicating that the operation has been indeed completed. Shifting the responsibility of identifying when the operation is complete to **Device** will be needed later when we will want to reuse the same **Driver** for [I2C](i2c.md) and [SPI](spi.md) peripherals. It will be important to know when internal Tx FIFO of the peripheral becomes empty after all the characters from previous operation have been written.
+Once the whole buffer is sent to the *Device* for writing, the *Driver* is aware that there will be no 
+more writes performed. However it doesn't report completion until the *Device* itself calls appropriate 
+callback indicating that the operation has been indeed completed. Shifting the responsibility of 
+identifying when the operation is complete to *Device* will be needed later when we will want to reuse the same 
+*Driver* for <<peripherals-i2c>> and <<peripherals-spi>> peripherals. It will be important to know when internal 
+Tx FIFO of the peripheral becomes empty after all the characters from previous operation have been written.
 
-![Image: Notifying caller about completion](../image/character_driver_flow_write3.png)
+image::images/character_driver_flow_write3.png[Image: Notifying caller about completion]
 
-Once the **Driver** receives notification from the **Device** (still in interrupt context), that the write operation is complete, it bundles the callback object, provided with initial `asyncWrite()` request, together with error status and number of actual bytes transferred using [std::bind](http://en.cppreference.com/w/cpp/utility/functional/bind) expression and sends the callable object to [Event Loop](../basic_concepts/event_loop.md) for execution in event loop (non-interrupt) context. 
+Once the *Driver* receives notification from the *Device* (still in interrupt context), that the write operation 
+is complete, it bundles the callback object, provided with initial `asyncWrite()` request, together with error 
+status and number of actual bytes transferred using 
+http://en.cppreference.com/w/cpp/utility/functional/bind[std::bind] expression and sends the callable object 
+to <<basic_concepts-event_loop>> for execution in event loop (non-interrupt) context. 
 
-### Reading from UART
+==== Reading from UART ====
 
 The reading from UART is done in a very similar manner.
 
-**Stage1** - Sending asynchronous buffer read request from the **Component** layer to **Driver** in event loop (non-interrupt) context.
+*Stage1* - Sending asynchronous buffer read request from the *Component* layer to *Driver* in event loop 
+(non-interrupt) context.
 
-![Image: Asynchronous read request](../image/character_driver_flow_read1.png)
+image::images/character_driver_flow_read1.png[Image: Asynchronous read request]
 
-The `asyncRead()` member function of the **Driver** should allow callback to be callable object of any type (but one that exposes predefined signature of course).
+The `asyncRead()` member function of the *Driver* should allow callback to be callable object of any type 
+(but one that exposes predefined signature of course).
 
-```cpp
+[source, c++]
+----
 class CharacterDriver
 {
 public:
@@ -148,14 +220,15 @@ public:
         std::size_t bufSize, 
         TCallbackFunc&& func);
 };
-```
+----
 
-**Stage2** - Reading data into the buffer.
+*Stage2* - Reading data into the buffer.
 
-![Image: Writing provided data](../image/character_driver_flow_read2.png)
+image::images/character_driver_flow_read2.png[Image: Writing provided data]
 
 The callback's implementation will be something like:
-```cpp
+[source, c++]
+----
     void canReadCallback()
     {
         while(device_.canRead(InterruptContext())) {
@@ -168,46 +241,59 @@ The callback's implementation will be something like:
             ++currentReadBufPtr_;
         }
     }
-```
+----
 
-**Stage3** - Notifying caller about completion:
+*Stage3* - Notifying caller about completion:
 
-![Image: Notifying caller about completion](../image/character_driver_flow_read3.png)
+image::images/character_driver_flow_read3.png[Image: Notifying caller about completion]
 
-### Cancelling Asynchronous Operations
+==== Cancelling Asynchronous Operations ====
 
-The cancellation flow is very similar to the one described in [Device-Driver-Component](../basic_concepts/device_driver_component.md) chapter:
+The cancellation flow is very similar to the one described in <<basic_concepts-device_driver_component>> chapter:
 
-![Image: Cancel read](../image/character_driver_cancel_read1.png)
+image::images/character_driver_cancel_read1.png[Image: Cancel read]
 
-If the cancellation is successful, the callback must be invoked with error code indicating that the operation was aborted (`embxx::error::ErrorCode::Aborted`).
+If the cancellation is successful, the callback must be invoked with error code indicating that the 
+operation was aborted (`embxx::error::ErrorCode::Aborted`).
 
-One possible case of unsuccessful cancellation is when callback was posted for execution in event loop, but hasn't been executed yet when cancellation is attempted. In this case **Driver** is aware that there is no pending asynchronous operation and can return `false` immediately.
+One possible case of unsuccessful cancellation is when callback was posted for execution in event loop, 
+but hasn't been executed yet when cancellation is attempted. In this case *Driver* is aware that there 
+is no pending asynchronous operation and can return `false` immediately.
 
-![Image: Cancel read](../image/character_driver_cancel_read2.png)
+image::images/character_driver_cancel_read2.png[Image: Cancel read]
 
-Another possible case of unsuccessful cancellation is when completion interrupt occurs in the middle of cancellation request:
+Another possible case of unsuccessful cancellation is when completion interrupt occurs in the middle 
+of cancellation request:
 
-![Image: Cancel read](../image/character_driver_cancel_read3.png)
+image::images/character_driver_cancel_read3.png[Image: Cancel read]
 
-### Reading "Until"
+[[peripherals-uart-reading_until]]
+==== Reading "Until" ====
 
-There may be a case, when partial read needs to be performed, for example until specific character is encountered. In this case the **Driver** is responsible to monitor incoming characters and cancel the read into the buffer operation before its completion:
+There may be a case, when partial read needs to be performed, for example until specific character 
+is encountered. In this case the *Driver* is responsible to monitor incoming characters and cancel 
+the read into the buffer operation before its completion:
 
-![Image: Notifying caller about completion](../image/character_driver_flow_read_until.png)
+image::images/character_driver_flow_read_until.png[Image: Notifying caller about completion]
 
-Note, that previously **Driver** called `cancelRead()` member function of the **Device** in event loop (non-interrupt) context, while in "read until" situation the cancellation happens in interrupt mode. That requires **Device** to implement these functions for both modes:
-```cpp
+Note, that previously *Driver* called `cancelRead()` member function of the *Device* in event 
+loop (non-interrupt) context, while in "read until" situation the cancellation happens in interrupt mode. 
+That requires *Device* to implement these functions for both modes:
+[source, c++]
+----
 class MyDevice
 {
 public:
     bool cancelRead(embxx::device::context::EventLoop) {...}
     bool cancelRead(embxx::device::context::Interrupt) {...}
 };
-```
+----
 
-The `asyncReadUntil()` member function of the **Driver** should be able to receive any stateless predicate object that defines `bool operator()(CharType ch) const`. The predicate invocation should return true when expected character is received and reading operation must be stopped.
-```cpp
+The `asyncReadUntil()` member function of the *Driver* should be able to receive any stateless 
+predicate object that defines `bool operator()(CharType ch) const`. The predicate invocation should 
+return `true` when expected character is received and reading operation must be stopped.
+[source, c++]
+----
 class MyDriver
 {
 public:
@@ -221,9 +307,11 @@ public:
         ...
     }
 };
-```
-It allows using complex conditions in evaluating the character. For example, stopping when either '\r' or '\n' is encountered:
-```cpp
+----
+It allows using complex conditions in evaluating the character. For example, stopping when either 
+`'\r'` or `'\n'` is encountered:
+[source, c++]
+----
 typedef embxx::error::ErrorStatus EmbxxErrorStatus;
 
 driver_.asyncReadUntil(
@@ -237,21 +325,24 @@ driver_.asyncReadUntil(
         {
             ...
         });
-```
+----
 
-### Device Implementation
+==== Device Implementation ====
 
-In this section I will try to describe in more details what **Device** class needs to provide for the **Driver** to work correctly. First of all it needs to define the type of characters used:
-```cpp
+In this section I will try to describe in more details what *Device* class needs to provide for the 
+*Driver* to work correctly. First of all it needs to define the type of characters used:
+[source, c++]
+----
 class MyDevice
 {
 public:
     typedef std::uint8_t CharType;
 };
-```
+----
 
-The **Driver** layer will reuse the definition of the character in its internal functions:
-```cpp
+The *Driver* layer will reuse the definition of the character in its internal functions:
+[source, c++]
+----
 
 template<typename TDevice, ...>
 class MyDriver
@@ -261,10 +352,12 @@ public:
 
     void asyncRead(CharType* buf, std::size_t bufSize, ...) {}
 };
-```
+----
 
-There is a need for **Device** to be able to record callback objects from the **Driver** in order to notify the latter about an ability to read/write next character and about operation completion. 
-```cpp
+There is a need for *Device* to be able to record callback objects from the *Driver* in order to notify 
+the latter about an ability to read/write next character and about operation completion. 
+[source, c++]
+----
 class MyDevice
 {
 public:
@@ -303,10 +396,12 @@ private:
     OpCompleteHandler writeCompleteHandler_;
 
 };
-```
+----
 
-The `OpAvailableHandler` and `OpCompleteHandler` type may be either hard coded to be `std::function<void ()>` and `std::function<void (const embxx::error::ErrorStatus&)>` respectively or passed as template parameters:
-```cpp
+The `OpAvailableHandler` and `OpCompleteHandler` type may be either hard coded to be `std::function<void ()>` 
+and `std::function<void (const embxx::error::ErrorStatus&)>` respectively or passed as template parameters:
+[source, c++]
+----
 template <typename TCanReadHandler,
           typename TCanWriteHandler,
           typename TReadCompleteHandler,
@@ -324,12 +419,14 @@ private:
     TCanWriteHandler canWriteHandler_;
     TWriteCompleteHandler writeCompleteHandler_;
 };
-```
+----
 
-Choosing the "template parameters option" is useful when the same **Device** class is reused between multiple applications for the same product line.
+Choosing the "template parameters option" is useful when the same *Device* class is reused between 
+multiple applications for the same product line.
 
 The next stage would be implementing all the required functions:
-```cpp
+[source, c++]
+----
 class MyDevice
 {
 public:
@@ -365,27 +462,35 @@ public:
     // Write one more character to Tx FIFO of the peripheral
     void write(CharType value, InterruptContext context);
 };
-```
+----
 
-Note, that there may be extra configuration functions specific for the peripheral being controlled. For example baud rate, parity, flow control for UART. Such configuration is almost always platform and/or product specific and usually performed at application startup. It is irrelevant to the [Device-Driver-Component](../basic_concepts/device_driver_component.md) model introduced in this book.
+Note, that there may be extra configuration functions specific for the peripheral being controlled. 
+For example baud rate, parity, flow control for UART. Such configuration is almost always platform 
+and/or product specific and usually performed at application startup. It is irrelevant to the 
+<<basic_concepts-device_driver_component>> model introduced in this book.
 
-```cpp
+[source, c++]
+----
 class MyDevice
 {
 public:
     void configBaud(unsigned value) { ... }
     ...
 };
-```
+----
 
-The [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project has multiple applications that use UART1 interface for logging. The peripheral control code is the same for all of them and is implemented in [src/device/Uart1.h](https://github.com/arobenko/embxx_on_rpi/blob/master/src/device/Uart1.h).
+The https://github.com/arobenko/embxx_on_rpi[embxx_on_rpi] project has multiple applications that use 
+UART1 interface for logging. The peripheral control code is the same for all of them and is implemented in 
+https://github.com/arobenko/embxx_on_rpi/blob/master/src/device/Uart1.h[src/device/Uart1.h].
 
-### Driver Implementation
+==== Driver Implementation ====
 
-**Driver** must be a generic piece of code, that can be reused with any **Device** control object (as long as it exposed right public interface) and in any application, including ones without dynamic memory allocation.
+*Driver* must be a generic piece of code, that can be reused with any *Device* control object (as 
+long as it exposed right public interface) and in any application, including ones without dynamic memory allocation.
 
-First of all, we will need references to **Device** as well as **[Event Loop](../basic_concepts/event_loop.md)** objects:
-```cpp
+First of all, we will need references to *Device* as well as <<basic_concepts-event_loop>> objects:
+[source, c++]
+----
 template <typename TDevice, typename TEventLoop>
 class MyDriver
 {
@@ -435,12 +540,16 @@ private:
     TDevice& device_;
     TEventLoop& el_;
 };
-```
+----
 
-We will also need to store callbacks provided with any asynchronous operation. Note that the "read" and "write" are independent operations and it should be possible to perform `asyncRead()` and `asyncWrite()` calls at the same time. 
+We will also need to store callbacks provided with any asynchronous operation. Note that the "read" and 
+"write" are independent operations and it should be possible to perform `asyncRead()` and `asyncWrite()` 
+calls at the same time. 
 
-The only way to make **Driver** generic is to move responsibility of specifying callback storage type up one level, i.e. we must put them as template parameters:
-```cpp
+The only way to make *Driver* generic is to move responsibility of specifying callback storage type up one 
+level, i.e. we must put them as template parameters:
+[source, c++]
+----
 template <typename TDevice, 
           typename TEventLoop,
           typename TReadCompleteCallback,
@@ -493,11 +602,14 @@ private:
     std::size_t writeBufSize_;
     TWriteCompleteCallback writeCompleteCallback_;
 };
-```
+----
 
-As it was mentioned earlier in [Reading "Until"](#reading-until-) section, there is quite often a need to stop reading characters into the provided buffer when some condition evaluates to true. It means there is also a need to provide storage for the character evaluation predicate:
+As it was mentioned earlier in <<peripherals-uart-reading_until>> section, there is quite often a 
+need to stop reading characters into the provided buffer when some condition evaluates to true. It 
+means there is also a need to provide storage for the character evaluation predicate:
 
-```cpp
+[source, c++]
+----
 template <typename TDevice, 
           typename TEventLoop,
           typename TReadCompleteCallback,
@@ -537,10 +649,15 @@ private:
 
     ...
 };
-```
+----
 
-The example code above may work, but it contradicts to one of the basic principles of C++: "You should pay only for what you use". In case of using UART for logging, there is no input from the peripheral and it is a waist to keep data members for "read" required to manage "read" operations. Let's try to improve the situation a little bit by using template specialisation as well as reduce number of template parameters by using "Traits" aggregation struct.
-```cpp
+The example code above may work, but it contradicts to one of the basic principles of C{plus}{plus}: 
+"You should pay only for what you use". In case of using UART for logging, there is no input from the 
+peripheral and it is a waist to keep data members for "read" required to manage "read" operations. 
+Let's try to improve the situation a little bit by using template specialisation as well as reduce 
+number of template parameters by using "Traits" aggregation struct.
+[source, c++]
+----
 struct MyOutputTraits
 {
     // The "read" handler storage type.
@@ -561,10 +678,16 @@ struct MyOutputTraits
     // Write queue size
     static const std::size_t WriteQueueSize = 1;
 };
-```
+----
 
-Please note, that allowed number of pending "read" requests is specified as 0 in the traits struct above, i.e. the read operations are not allowed. The "read complete" and "read until predicate" types are irrelevant and specified as [std::nullptr_t](http://en.cppreference.com/w/cpp/types/nullptr_t). The instantiation of the **Driver** object must take it into account and not include any "read" related functionality. In order to achieve this the **Driver** class needs to have two independent sub-functionalities of "read" and "write". It may be achieved by inheriting from two base classes. 
-```cpp
+Please note, that allowed number of pending "read" requests is specified as 0 in the traits 
+struct above, i.e. the read operations are not allowed. The "read complete" and "read until predicate" 
+types are irrelevant and specified as http://en.cppreference.com/w/cpp/types/nullptr_t[std::nullptr_t]. 
+The instantiation of the *Driver* object must take it into account and not include any "read" related 
+functionality. In order to achieve this the *Driver* class needs to have two independent sub-functionalities 
+of "read" and "write". It may be achieved by inheriting from two base classes. 
+[source, c++]
+----
 template <typename TDevice,
           typename TEventLoop,
           typename TTraits = MyOutputTraits>
@@ -602,10 +725,11 @@ public:
         WriteBase::asyncWrite(buf, bufSize, std::forward<TFunc>(func);
     }
 };
-```
+----
 
 Now, the template specialisation based on queue size should do the job:
-```cpp
+[source, c++]
+----
 template <typename TDevice,
           typename TEventLoop,
           typename TReadHandler,
@@ -666,22 +790,31 @@ public:
     WriteSupportBase(TDevice& device, TEventLoop& el) {}
     // No need for any "write" related API and data members
 };
-```
+----
 
-Note, that it is possible to implement general case when read/write queue size is greater than 1. It will require some kind of request queuing (using [Static (Fixed Size) Queue](../basic_needs/queue.md) for example) and will allow issuing multiple asynchronous read/write requests at the same time.
+Note, that it is possible to implement general case when read/write queue size is greater than 1. 
+It will require some kind of request queuing (using <<basic_needs-queue>> for example) and will 
+allow issuing multiple asynchronous read/write requests at the same time.
 
-In order to support this extension, the **Device** class must implement some extra functionality too:
-1. The new read/write request can be issued by the **Driver** in interrupt context, after previous operation reported completion.
-```cpp
+In order to support this extension, the *Device* class must implement some extra functionality too:
+
+. The new read/write request can be issued by the *Driver* in interrupt context, after previous 
+operation reported completion.
++
+[source, c++]
+----
 class MyDevice
 {
 public:
     void startRead(std::size_t length, InterruptContext context);
     void startWrite(std::size_t length, InterruptContext context);
 };
-```
-1. When new asynchronous read/write request is issued to the **Driver** it must be able to prevent interrupt context callbacks from being invoked to avoid races on the internal data structure:
-```cpp
+----
++
+. When new asynchronous read/write request is issued to the *Driver* it must be able to prevent interrupt context callbacks from being invoked to avoid races on the internal data structure:
++
+[source, c++]
+----
 class MyDevice
 {
 public:
@@ -690,17 +823,24 @@ public:
     bool suspendWrite(EventLoopContext context);
     void resumeWrite(EventLoopContext context);
 };
-```
+----
++
 Please pay attention to the boolean return value of `suspend*()` functions. They are like `cancel*()` ones, there is an indication whether the invocation of the callbacks is suspended or there is no operation currently in progress.
 
-Such generic **Driver** is already implemented in [embxx/driver/Character.h](https://github.com/arobenko/embxx/blob/master/embxx/driver/Character.h) file of [embxx](https://github.com/arobenko/embxx) library. The **Driver** is called "Character", because it reads/writes the provided buffer one character at a time. The documentation can be found [here](https://dl.dropboxusercontent.com/u/46999418/embxx/driver_character_page.html).
+Such generic *Driver* is already implemented in 
+https://github.com/arobenko/embxx/blob/master/embxx/driver/Character.h[embxx/driver/Character.h] file of 
+https://github.com/arobenko/embxx[embxx] library. The *Driver* is called "Character", because it reads/writes the provided buffer one character at a time. 
 
-### Character Echo Application
+==== Character Echo Application ====
 
-Now, it is time to do something practical. The [app_uart1_echo](https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_uart1_echo) application in [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project implements simple single character echo.
+Now, it is time to do something practical. The 
+https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_uart1_echo[app_uart1_echo] application 
+in https://github.com/arobenko/embxx_on_rpi[embxx_on_rpi] project implements simple single character echo.
 
-The `System` class in [System.h](https://github.com/arobenko/embxx_on_rpi/blob/master/src/app/app_uart1_echo/System.h) file defines the **Device** and **Driver** layers:
-```cpp
+The `System` class in https://github.com/arobenko/embxx_on_rpi/blob/master/src/app/app_uart1_echo/System.h[System.h] 
+file defines the *Device* and *Driver* layers:
+[source, c++]
+----
 class System
 {
 public:
@@ -726,9 +866,10 @@ private:
     UartSocket uartSocket_;
 };
 
-```
+----
 Note that `UartSocket` uses default "TTraits" template parameter of `embxx::driver::Character`, which is defined to be:
-```cpp
+[source, c++]
+----
 struct DefaultCharacterTraits
 {
     typedef embxx::util::StaticFunction<
@@ -739,9 +880,11 @@ struct DefaultCharacterTraits
     static const std::size_t ReadQueueSize = 1;
     static const std::size_t WriteQueueSize = 1;
 };
-```
-It allows usage of both "read" and "write" operations at the same time. Having the definitions in place it is quite easy to implement the "echo" functionality:
-```cpp
+----
+It allows usage of both "read" and "write" operations at the same time. Having the definitions in place 
+it is quite easy to implement the "echo" functionality:
+[source, c++]
+----
 // Forward declaration
 void writeChar(System::UartSocket& uartSocket, System::Uart::CharType& ch);
 
@@ -792,18 +935,26 @@ int main() {
 
     GASSERT(0); // Mustn't exit
     return 0;
-```
+----
 
-### Stream-like Printing Interface
+==== Stream-like Printing Interface ====
 
-As was mentioned earlier, our ultimate goal would be having standard output stream like interface for debug output, which works asynchronously without any blocking busy waits. Such interface must be a generic **Component**, which works in non-interrupt context, while using recently covered generic "Character" **Driver** in conjunction with platform specific "Uart" **Device**.
+As was mentioned earlier, our ultimate goal would be having standard output stream like interface 
+for debug output, which works asynchronously without any blocking busy waits. Such interface must 
+be a generic *Component*, which works in non-interrupt context, while using recently covered generic 
+"Character" *Driver* in conjunction with platform specific "Uart" *Device*.
 
-Such **Component** should be implemented as two sub-**Components**. One is "Stream Buffer" which is responsible to maintain circular buffer of written characters and flush them to the peripheral using "Character" **Driver** when needed. The characters, that have been successfully written, are removed from the internal buffer. The second one is "Stream" itself, which is responsible to convert various values into characters and write them to the end of the "Stream Buffer".
+Such *Component* should be implemented as two sub-*Components*. One is "Stream Buffer" which is 
+responsible to maintain circular buffer of written characters and flush them to the peripheral 
+using "Character" *Driver* when needed. The characters, that have been successfully written, 
+are removed from the internal buffer. The second one is "Stream" itself, which is responsible 
+to convert various values into characters and write them to the end of the "Stream Buffer".
 
-![Image: Stream](../image/stream.png)
+image::images/stream.png[Image: Stream]
 
-Let's start with "Output Stream Buffer" first. It needs to receive reference to the **Driver** it's going to use:
-```cpp
+Let's start with "Output Stream Buffer" first. It needs to receive reference to the *Driver* it's going to use:
+[source, c++]
+----
 template <typename TDriver>
 class OutStreamBuf
 {
@@ -817,10 +968,15 @@ private:
    TDriver& driver_;
    ...
 };
-```
+----
 
-There is also a need to have a buffer, where characters are stored before they are written to the device. Remember that we are trying to create a **Component**, which can be reused in multiple independent projects, including ones that do not support dynamic memory allocation. Hence, [Static (Fixed Size) Queue](../basic_needs/queue.md) may be a good choice for it. It means, there is a need to provide size of the buffer as one of the template arguments:
-```cpp
+There is also a need to have a buffer, where characters are stored before they are written to the 
+device. Remember that we are trying to create a *Component*, which can be reused in multiple 
+independent projects, including ones that do not support dynamic memory allocation. Hence, 
+<<basic_needs-queue>> may be a good choice for it. It means, there is a need to provide size of the 
+buffer as one of the template arguments:
+[source, c++]
+----
 template <typename TDriver,
           std::size_t TBufSize>
 class OutStreamBuf
@@ -833,14 +989,20 @@ private:
    ...
    Buffer buf_;
 };
-```
+----
 
 The "Output Stream Buffer" needs to support two main operations:
-1. Pushing new single character at the end of the buffer.
-2. Flushing all (or part of) written characters, i.e. activate asynchronous write with **Driver**.
 
-When pushing a new character, there may be a case when the internal buffer is full. In this case, the pushed character needs to be discarded and there must be an indication whether "push" operation was successful. The function may return either `bool` to indicate success of the operation or `std::size_t` to inform the caller how may characters where written. If `0` is returned, the character wasn't written.
-```cpp
+. Pushing new single character at the end of the buffer.
+. Flushing all (or part of) written characters, i.e. activate asynchronous write with *Driver*.
+
+When pushing a new character, there may be a case when the internal buffer is full. In this case, 
+the pushed character needs to be discarded and there must be an indication whether "push" operation 
+was successful. The function may return either `bool` to indicate success of the operation or 
+`std::size_t` to inform the caller how may characters where written. If `0` is returned, the 
+character wasn't written.
+[source, c++]
+----
 template <...>
 class OutStreamBuf
 {
@@ -855,18 +1017,23 @@ public:
    void flush(std::size_t count = size());
    ...
 };
-```
+----
 
-This limited number of operations is enough to implement "Output Stream" - like interface. However, "Output Stream Buffer" can be useful in writing any serialised data into the peripheral, not only the debug output. For example using standard algorithms:
-```cpp
+This limited number of operations is enough to implement "Output Stream" - like interface. 
+However, "Output Stream Buffer" can be useful in writing any serialised data into the peripheral, 
+not only the debug output. For example using standard algorithms:
+[source, c++]
+----
 OutStreamBuf<...> outStreamBuf(...);
 std::array<std::uint8_t, 128> data = {{.../* some data*/}};
 
 std::copy(data.begin(), data.end(), std::back_inserter(outStreamBuf));
 outStreamBuf.flush();
-```
-In the example above, [std::back_inserter](http://en.cppreference.com/w/cpp/iterator/back_inserter) requires a container to define `push_back()` member function:
-```cpp
+----
+In the example above, http://en.cppreference.com/w/cpp/iterator/back_inserter[std::back_inserter] requires 
+a container to define `push_back()` member function:
+[source, c++]
+----
 template <...>
 class OutStreamBuf
 {
@@ -878,10 +1045,13 @@ public:
    }
    ...
 };
-```
+----
 
-There also may be a need to iterate over written, but still not flushed, characters and update some of them before the call to `flush()`. In other words the "Output Stream Buffer" must be treated as random access container:
-```cpp
+There also may be a need to iterate over written, but still not flushed, characters and update some of 
+them before the call to `flush()`. In other words the "Output Stream Buffer" must be treated as random 
+access container:
+[source, c++]
+----
 template <...>
 class OutStreamBuf
 {
@@ -910,10 +1080,13 @@ public:
     ConstReference operator[](std::size_t idx) const;
    ...
 };
-```
+----
 
-As was mentioned earlier, the `OutStreamBuf` uses [Static (Fixed Size) Queue](../basic_needs/queue.md) as its internal buffer and any characters pushed beyond the capacity gets discarded. There must be a way to identify available capacity as well as request asynchronous notification via callback when requested capacity becomes available:
-```cpp
+As was mentioned earlier, the `OutStreamBuf` uses <<basic_needs-queue>> as its internal buffer and any 
+characters pushed beyond the capacity gets discarded. There must be a way to identify available capacity 
+as well as request asynchronous notification via callback when requested capacity becomes available:
+[source, c++]
+----
 template <typename TDriver,
           std::size_t TBufSize,
           typename TWaitHandler = 
@@ -943,12 +1116,16 @@ private:
     std::size_t waitAvailableCapacity_;
     WaitHandler waitHandler_;
 };
-```
+----
 
-Such "Output Stream Buffer" is already implemented in [embxx/io/OutStreamBuf.h](https://github.com/arobenko/embxx/blob/master/embxx/io/OutStreamBuf.h) file of [embxx](https://github.com/arobenko/embxx) library and documentation can be found [here](https://dl.dropboxusercontent.com/u/46999418/embxx/io_out_stream_buf_page.html).
+Such "Output Stream Buffer" is already implemented in 
+https://github.com/arobenko/embxx/blob/master/embxx/io/OutStreamBuf.h[embxx/io/OutStreamBuf.h] file of 
+https://github.com/arobenko/embxx[embxx] library.
 
-The next stage would be defining the "Output Stream" class, which will allow printing of null terminated strings as well as various integral values. 
-```cpp
+The next stage would be defining the "Output Stream" class, which will allow printing of null terminated 
+strings as well as various integral values. 
+[source, c++]
+----
 template <typename TStreamBuf>
 class OutStream
 {
@@ -1028,10 +1205,16 @@ public:
 private:
     TStreamBuf& buf_;
 };
-```
+----
 
-We will also require the numeric base representation and manipulator. Unfortunately, usage of `std::oct`, `std::dec`or `std::hex` manipulators will require inclusion of standard library header [<ios>](http://en.cppreference.com/w/cpp/header/ios), which in turn includes other standard stream related headers, which define some static objects, which in turn are defined and instantiated in standard library. It contradicts our main goal of writing generic code that doesn't require standard library to be used. It is better to define such manipulators ourselves:
-```cpp
+We will also require the numeric base representation and manipulator. Unfortunately, usage of 
+`std::oct`, `std::dec`or `std::hex` manipulators will require inclusion of standard library 
+header http://en.cppreference.com/w/cpp/header/ios[<ios>], which in turn includes other standard 
+stream related headers, which define some static objects, which in turn are defined and instantiated 
+in standard library. It contradicts our main goal of writing generic code that doesn't require 
+standard library to be used. It is better to define such manipulators ourselves:
+[source, c++]
+----
 enum Base
 {
     bin, ///< Binary numeric base stream manipulator
@@ -1061,18 +1244,22 @@ private:
     TStreamBuf& buf_;
     Base base_;
 };
-```
+----
 
-The value of the numeric base representation must be taken into account when creating string representation of numeric values. The usage is very similar to standard:
-```cpp
+The value of the numeric base representation must be taken into account when creating string 
+representation of numeric values. The usage is very similar to standard:
+[source, c++]
+----
 OutStream<...> stream;
 
 stream << "var1=" << dec << var1 << "; var2=" << hex << var2 << '\n';
 stream.flush();
-```
+----
 
-It may be convenient to support a little bit of formatting, such as specifying minimal width of the output as well as fill character:
-```cpp
+It may be convenient to support a little bit of formatting, such as specifying minimal width of 
+the output as well as fill character:
+[source, c++]
+----
 class WidthManip : public ValueManipBase<std::size_t>
 {
 public:
@@ -1136,19 +1323,22 @@ private:
     std::size_t width_;
     CharType fill_;
 };
-```
+----
 
 The usage is very similar to the base manipulator:
-```cpp
+[source, c++]
+----
 OutStream<...> stream;
 
 stream << "var1=" << dec << setw(4) << var1 << "; var2=" << hex 
        << setfill('0') << var2 << '\n';
 stream.flush();
-```
+----
 
-Another useful manipulator is adding '\n' at the end as well as calling `flush()`, just like `std::endl` does when using standard output streams:
-```cpp
+Another useful manipulator is adding '\n' at the end as well as calling `flush()`, just like 
+`std::endl` does when using standard output streams:
+[source, c++]
+----
 enum Endl
 {
     endl ///< End of line stream manipulator
@@ -1172,31 +1362,45 @@ private:
     ...
 };
 
-```
+----
 
 Then usage example may be changed to:
-```cpp
+[source, c++]
+----
 OutStream<...> stream;
 
 stream << "var1=" << dec << setw(4) << var1 << "; var2=" << hex 
        << setfill('0') << var2 << endl;
-```
+----
 
-**To summarise**: The "Output Stream" object converts given integer value into the printable characters and uses `pushBack()` member function of "Output Stream Buffer" to pass these characters further. The request to `flush()` is also passed on. When "Output Stream Buffer" receives a request to flush internal buffer it activates the "Character" **Driver**, which it turn uses "UART" **Device** to write characters to serial interface one by one. As the result of such cooperation, the "printing" statement is very quick, there is no wait for all the characters to be written before the function returns, like it is usually done with `printf()`. All the characters are written at the background using interrupts, while the main thread of the application continues its execution without stalling.
+*To summarise*: The "Output Stream" object converts given integer value into the printable 
+characters and uses `pushBack()` member function of "Output Stream Buffer" to pass these characters 
+further. The request to `flush()` is also passed on. When "Output Stream Buffer" receives a request 
+to flush internal buffer it activates the "Character" *Driver*, which it turn uses "UART" *Device* 
+to write characters to serial interface one by one. As the result of such cooperation, the "printing" 
+statement is very quick, there is no wait for all the characters to be written before the function 
+returns, like it is usually done with `printf()`. All the characters are written at the background 
+using interrupts, while the main thread of the application continues its execution without stalling.
 
-Such "Output Stream" is already implemented in [embxx/io/OutStream.h](https://github.com/arobenko/embxx/blob/master/embxx/io/OutStream.h) file of [embxx](https://github.com/arobenko/embxx) library and documentation can be found [here](https://dl.dropboxusercontent.com/u/46999418/embxx/io_out_stream_page.html).
+Such "Output Stream" is already implemented in 
+https://github.com/arobenko/embxx/blob/master/embxx/io/OutStream.h[embxx/io/OutStream.h] file of 
+https://github.com/arobenko/embxx[embxx] library.
 
-### Logging
+==== Logging ====
 
-In general, debug logging should be under conditional compilation, for example only in **DEBUG** mode, while the printing code is excluded when compiling in **RELEASE** mode.
-```cpp
+In general, debug logging should be under conditional compilation, for example only in *DEBUG* mode, 
+while the printing code is excluded when compiling in *RELEASE* mode.
+[source, c++]
+----
 #ifndef NDEBUG
     stream << "Some info massage" << endl;
 #endif
-```
+----
 
-Sometimes there is a need to easily change the amount of debug messages being printed. For that purpose, the concept of logging levels is widely used:
-```cpp
+Sometimes there is a need to easily change the amount of debug messages being printed. For 
+that purpose, the concept of logging levels is widely used:
+[source, c++]
+----
 namespace log
 {
 
@@ -1211,10 +1415,11 @@ enum Level
 };
 
 }  // namespace log
-```
+----
 
 The logging statement becomes a macro:
-```cpp
+[source, c++]
+----
 const auto MinLogLevel = log::Info;
 
 #define LOG(stream__, level__, output__) \
@@ -1223,31 +1428,36 @@ const auto MinLogLevel = log::Info;
             (stream__).stream() << output__; \
         } \
     } while (false)
-```
-In this case all the logging attempts for level below `log::Info` get optimised away by the compiler, because the `if` statement known to evaluate to `false` at compile time:
-```cpp
+----
+In this case all the logging attempts for level below `log::Info` get optimised away by the compiler, 
+because the `if` statement known to evaluate to `false` at compile time:
+[source, c++]
+----
 LOG(stream, log::Debug, "This message is not printed." << endl);
 LOG(stream, log::Info, "This message IS printed." << endl);
 LOG(stream, log::Warning, "This message IS printed also." << endl);
-```
+----
 
-It would be nice to be able to add some automatic formatting to the logged statements, such as printing the log level and/or adding '\n' and flushing at the end. For example, the code below
-```cpp
+It would be nice to be able to add some automatic formatting to the logged statements, such as
+printing the log level and/or adding '\n' and flushing at the end. For example, the code below
+[source, c++]
+----
 LOG(stream, log::Debug, "This is DEBUG message.");
 LOG(stream, log::Info, "This is INFO message.");
 LOG(stream, log::Warning, "This is WARNING message.");
-```
+----
 to produce the following output
-```
+----
 [DEBUG]: This is DEBUG message.
 [INFO]: This is INFO message.
 [WARNING]: This is WARNING message.
-```
-with '\n' character and call to `flush()` at the end.
+----
+with `'\n'` character and call to `flush()` at the end.
 
 It is easy to achieve when using some kind of wrapper logging class around the output stream as well as relevant formatters.
 For example:
-```cpp
+[source, c++]
+----
 template <log::Level TLevel, typename TStream>
 class StreamLogger
 {
@@ -1284,10 +1494,11 @@ public:
 private:
     Stream& outStream_;
 };
-```
+----
 
 The logging macro will look like this:
-```cpp
+[source, c++]
+----
 #define SLOG(log__, level__, output__) \
     do { \
         if ((log__).MinLevel <= (level__)) { \
@@ -1296,10 +1507,13 @@ The logging macro will look like this:
             (log__).end(level__); \
         } \
     } while (false)
-```
+----
 
-A formatter can be defined by exposing the same interface, but wraps the original `StreamLogger` or another formatter. For example let's define formatter that calls `flush()` member function of the stream when output is complete:
-```cpp
+A formatter can be defined by exposing the same interface, but wraps the original `StreamLogger` or 
+another formatter. For example let's define formatter that calls `flush()` member function of the 
+stream when output is complete:
+[source, c++]
+----
 template <typename TNextLayer>
 class StreamFlushSuffixer
 {
@@ -1333,10 +1547,11 @@ private:
     TNextLavel nextLavel_;
 };
 
-```
+----
 
 The definition of such logger would be:
-```cpp
+[source, c++]
+----
 typedef ... OutStream; // type of the output stream
 typedef 
     StreamFlushSuffixer<
@@ -1345,17 +1560,19 @@ typedef
             OutStream
         >
     > Log;
-```
+----
 
 The same `SLOG()` macro will work for this logger with extra formatting:
-```cpp
+[source, c++]
+----
 OutStream stream(... /* construction params */);
 Log log(stream);
 SLOG(log, log::Debug, "This is DEBUG message.\n");
-```
+----
 
-Let's also add a formatter that capable of printing any value (and '\n' in particular) at the end of the output. 
-```cpp
+Let's also add a formatter that capable of printing any value (and `'\n'` in particular) at the end of the output. 
+[source, c++]
+----
 template <typename T, typename TNextLayer>
 class StreamableValueSuffixer
 {
@@ -1389,10 +1606,12 @@ private:
     T value_;
     TNextLavel nextLavel_;
 };
-```
+----
 
-The definition of the logger that adds '\n' character and then calls `flush()` member function of the underlying stream would be:
-```cpp
+The definition of the logger that adds `'\n'` character and then calls `flush()` member function of 
+the underlying stream would be:
+[source, c++]
+----
 typedef embxx::io::OutStream<...> OutStream;
 typedef 
     StreamFlushSuffixer<
@@ -1404,17 +1623,20 @@ typedef
             >
         >
     > Log;
-```
+----
 
-While the construction will require to specify the character which is going to be printed at the end, but before call to `flush()`.
-```cpp
+While the construction will require to specify the character which is going to be printed at the end, 
+but before call to `flush()`.
+[source, c++]
+----
 OutStream stream(...);
 Log log('\n', stream);
 SLOG(log, log::Debug, "This is DEBUG message.");
-```
+----
 
 As the last formatter, let's do the one that prefixes the output with log level information:
-```cpp
+[source, c++]
+----
 template <typename TNextLayer>
 class LevelStringPrefixer
 {
@@ -1455,10 +1677,12 @@ public:
 private:
     TNextLavel nextLavel_;
 };
-```
+----
 
-The definition of the logger that prints such a prefix at the beginning and '\n' at the end together with call to `flush()` would be:
-```cpp
+The definition of the logger that prints such a prefix at the beginning and `'\n'` at the end together 
+with call to `flush()` would be:
+[source, c++]
+----
 typedef 
     StreamFlushSuffixer<
         StreamableValueSuffixer<
@@ -1471,14 +1695,19 @@ typedef
             >
         >
     > Log;
-```
+----
 
-Such `StreamLogger` together with multiple formatters is already implemented in [embxx/util/StreamLogger.h](https://github.com/arobenko/embxx/blob/master/embxx/util/StreamLogger.h) file of [embxx](https://github.com/arobenko/embxx) library and documented [here](https://dl.dropboxusercontent.com/u/46999418/embxx/util_stream_logger_page.html).
+Such `StreamLogger` together with multiple formatters is already implemented in 
+https://github.com/arobenko/embxx/blob/master/embxx/util/StreamLogger.h[embxx/util/StreamLogger.h] file of 
+https://github.com/arobenko/embxx[embxx] library.
 
-### Logging Application
+==== Logging Application ====
 
-The [app_uart1_logging](https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_uart1_logging) application in [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project implements logging of simple counter that gets incremented once a second:
-```cpp
+The https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_uart1_logging[app_uart1_logging] 
+application in https://github.com/arobenko/embxx_on_rpi[embxx_on_rpi] project implements logging of 
+simple counter that gets incremented once a second:
+[source, c++]
+----
 namespace log = embxx::util::log;
 template <typename TLog, typename TTimer>
 void performLog(TLog& log, TTimer& timer, std::size_t& counter)
@@ -1527,10 +1756,12 @@ int main() {
     GASSERT(0); // Mustn't exit
     return 0;
 }
-```
+----
 
-The [System.h](https://github.com/arobenko/embxx_on_rpi/blob/master/src/app/app_uart1_logging/System.h) file defines the whole output stack:
-```cpp
+The https://github.com/arobenko/embxx_on_rpi/blob/master/src/app/app_uart1_logging/System.h[System.h] 
+file defines the whole output stack:
+[source, c++]
+----
 class System
 {
 public:
@@ -1596,22 +1827,27 @@ private:
     ...
 };
 
-```
+----
 
 This application will produce the following output to the UART interface with new line appearing every second:
-```
+----
 [INFO] Logging output: counter = 1 (0x1)
 [INFO] Logging output: counter = 2 (0x2)
 [INFO] Logging output: counter = 3 (0x3)
 ...
-```
+----
 
-### Buffered Input
+==== Buffered Input ====
 
-In many systems the UART interfaces are also used to communicate between various microcontrollers on the same board or with external devices. When there are incoming messages, the characters must be stored in some buffer before they can be processed by some **Component**. Just like we had "Output Stream Buffer" for buffering outgoing characters, we must have "Input Stream Buffer" for buffering incoming ones.
+In many systems the UART interfaces are also used to communicate between various microcontrollers on the same 
+board or with external devices. When there are incoming messages, the characters must be stored in some 
+buffer before they can be processed by some *Component*. Just like we had "Output Stream Buffer" for 
+buffering outgoing characters, we must have "Input Stream Buffer" for buffering incoming ones.
 
-It must obviously have an access to the Character **Driver** and will probably have a circular buffer to store incoming characters.
-```cpp
+It must obviously have an access to the Character *Driver* and will probably have a circular buffer 
+to store incoming characters.
+[source, c++]
+----
 template <typename TDriver, std::size_t TBufSize>
 class InStreamBuf
 {
@@ -1629,10 +1865,15 @@ private:
     TDriver& driver_;
     Buffer buf_;
 };
-```
+----
 
-The **Driver** won't perform any read operations unless it is explicitly requested to do so with its `asyncRead()` member function. Sometimes, there is a need to keep characters flowing in and being stored in the buffer, even when the **Component** responsible for processing them is not ready. In order to make this happen, the "Input Stream Buffer" must be responsible for constantly requesting the **Driver** to perform asynchronous read while providing space where these characters are going to be stored. 
-```cpp
+The *Driver* won't perform any read operations unless it is explicitly requested to do so with its 
+`asyncRead()` member function. Sometimes, there is a need to keep characters flowing in and being 
+stored in the buffer, even when the *Component* responsible for processing them is not ready. 
+In order to make this happen, the "Input Stream Buffer" must be responsible for constantly 
+requesting the *Driver* to perform asynchronous read while providing space where these characters are going to be stored. 
+[source, c++]
+----
 template <typename TDriver, std::size_t TBufSize>
 class InStreamBuf
 {
@@ -1646,10 +1887,15 @@ public:
     // Inquire whether characters are being accumulated.
     bool isRunning() const;
 };
-```
+----
 
-Most of the times the responsible **Component** will require some number of characters to be accumulated before their processing can be started. There is a need to provide asynchronous notification callback request when appropriate number of characters becomes available. The callback must be stored in the internal data structures of the "Input Stream Buffer" and invoked when needed. Due to the latter being developed as a generic class, there is a need to provide callback storage type as a template parameter.
-```cpp
+Most of the times the responsible *Component* will require some number of characters to be accumulated before 
+their processing can be started. There is a need to provide asynchronous notification callback request 
+when appropriate number of characters becomes available. The callback must be stored in the internal 
+data structures of the "Input Stream Buffer" and invoked when needed. Due to the latter being developed 
+as a generic class, there is a need to provide callback storage type as a template parameter.
+[source, c++]
+----
 template <typename TDriver, std::size_t TBufSize, typename TWaitHandler>
 class InStreamBuf
 {
@@ -1665,10 +1911,12 @@ public:
 private:
     TWaitHandler callback_;
 };
-```
+----
 
-Once the required number of characters is accumulated, the **Component** must be able to access and process them. It means that "Input Stream Buffer" must also be a container with random access iterators.
-```cpp
+Once the required number of characters is accumulated, the *Component* must be able to access and process them. 
+It means that "Input Stream Buffer" must also be a container with random access iterators.
+[source, c++]
+----
 template <typename TDriver, std::size_t TBufSize, typename TWaitHandler>
 class InStreamBuf
 {
@@ -1695,13 +1943,16 @@ public:
     ConstIterator cend() const;
     ConstReference operator[](std::size_t idx) const;
 };
-```
+----
 
-Please note, that all the access to the characters are done using const iterator. It means we do not allow external and uncontrolled update of the characters inside of the buffer.
+Please note, that all the access to the characters are done using const iterator. It means we do not 
+allow external and uncontrolled update of the characters inside of the buffer.
 
-When the characters inside the buffer got processed and aren't needed any more, they need to be discarded to free the space inside the buffer for new ones to come.
+When the characters inside the buffer got processed and aren't needed any more, they need to be 
+discarded to free the space inside the buffer for new ones to come.
 
-```cpp
+[source, c++]
+----
 template <typename TDriver, std::size_t TBufSize, typename TWaitHandler>
 class InStreamBuf
 {
@@ -1709,14 +1960,19 @@ public:
     // Consume part or the whole buffer of the available data for read.
     void consume(std::size_t consumeSize = size());
 };
-```
+----
 
-### Morse Code Application
+==== Morse Code Application ====
 
-The [app_uart1_morse](https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_uart1_morse) application in [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project implements buffering of incoming characters in the "Input Stream Buffer" and uses the [Morse Code](http://en.wikipedia.org/wiki/Morse_code) method to display them by flashing the on-board led.
+The https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_uart1_morse[app_uart1_morse] 
+application in https://github.com/arobenko/embxx_on_rpi[embxx_on_rpi] project implements buffering 
+of incoming characters in the "Input Stream Buffer" and uses the 
+http://en.wikipedia.org/wiki/Morse_code[Morse Code] method to display them by flashing the on-board led.
 
-First of all there is a need to have an access to the led to flash, input buffer to store the incoming characters and timer manager to allocate a timer to measure timeouts.
-```cpp
+First of all there is a need to have an access to the led to flash, input buffer to store the incoming 
+characters and timer manager to allocate a timer to measure timeouts.
+[source, c++]
+----
 template <typename TLed, typename TInBuf, typename TTimerMgr>
 class Morse
 {
@@ -1741,11 +1997,13 @@ private:
     InBuf& buf_;
     Timer timer_;
 };
-```
+----
 
-Second, there is a need to define a Morse code sequences in terms of dots and dashes duration as well as mapping an incoming character to the respective sequence.
+Second, there is a need to define a Morse code sequences in terms of dots and dashes duration as well as 
+mapping an incoming character to the respective sequence.
 
-```cpp
+[source, c++]
+----
 template <...>
 class Morse
 {
@@ -1807,10 +2065,11 @@ private:
         return nullptr;
     }
 };
-```
+----
 
 Now, the code that is responsible to flash a led is quite simple:
-```cpp
+[source, c++]
+----
 template <...>
 class Morse
 {
@@ -1891,11 +2150,21 @@ private:
     }
 
 };
-```
+----
 
-The `nextLetter()` member function waits until one character becomes available in the buffer, then maps it to the sequence and removes it from the buffer. If the mapping exists it calls the `nextSyllable()` member function to start the flashing sequence. The function activates the led and waits the relevant amount of time, based on the provided dot or dash duration. After the timeout, the led goes off and new wait is activated. However if the end of sequence is reached, the wait will be of `InterSpacing` duration and `nextLetter()` member function will be called again, otherwise the wait will be of `Spacing` duration and `nextSyllable()` will be called again to activate the led and wait for the next period in the sequence.
+The `nextLetter()` member function waits until one character becomes available in the buffer, 
+then maps it to the sequence and removes it from the buffer. If the mapping exists it calls the 
+`nextSyllable()` member function to start the flashing sequence. The function activates the led 
+and waits the relevant amount of time, based on the provided dot or dash duration. After the 
+timeout, the led goes off and new wait is activated. However if the end of sequence is reached, 
+the wait will be of `InterSpacing` duration and `nextLetter()` member function will be called again, 
+otherwise the wait will be of `Spacing` duration and `nextSyllable()` will be called again to activate 
+the led and wait for the next period in the sequence.
 
-### Summary
+==== Summary ====
 
-After this quite a significant effort we've created a full generic stack to perform asynchronous input/output operations over serial interface, such as UART. It may be reused in multiple independent projects while providing platform specific low level device control object at the bottom of this stack.
+After this quite a significant effort we've created a full generic stack to perform asynchronous 
+input/output operations over serial interface, such as UART. It may be reused in multiple independent 
+projects while providing platform specific low level device control object at the bottom of this stack.
+
 

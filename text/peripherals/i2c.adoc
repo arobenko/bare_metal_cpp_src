@@ -1,17 +1,28 @@
-## I2C
+[[peripherals-i2c]]
+=== I2C ===
 
-[I2C](http://en.wikipedia.org/wiki/I%C2%B2C) is serial communication bus. It is very popular in embedded development and mostly used to communicate to various low speed peripherals, such as eeproms and various sensors. 
+http://en.wikipedia.org/wiki/I%C2%B2C[I2C] is serial communication bus. It is very popular in embedded 
+development and mostly used to communicate to various low speed peripherals, such as eeproms and 
+various sensors. 
 
-The control and use of I2C fits nicely into the [Device-Driver-Component](../basic_concepts/device_driver_component.md) model described in this book. It is a serial interface and the controlling **Device** object will have to read/write characters one by one, just like it was with [UART](uart.md). It would be nice if we coud reuse the Character **Driver** we implemented before. However, the I2C is multi-master / multi-slave bus and there is a need to specify the slave ID (or address) when initiating read and/or write operation. 
+The control and use of I2C fits nicely into the <<basic_concepts-device_driver_component>> model described 
+in this book. It is a serial interface and the controlling **Device** object will have to read/write 
+characters one by one, just like it was with <<peripherals-uart>>. It would be nice if we coud reuse the
+Character **Driver** we implemented before. However, the I2C is multi-master / multi-slave bus and 
+there is a need to specify the slave ID (or address) when initiating read and/or write operation. 
 
-### ID Adaptor
+[[peripherals-i2c-id_adaptor]]
+==== ID Adaptor ====
 
-It is quite clear that some kind of **ID Device Adaptor** is needed. It will be constructed with additional ID parameter and will be responsible to forward all the API calls from the Character **Driver** to I2C **Device** while adding one extra parameter of ID. 
+It is quite clear that some kind of **ID Device Adaptor** is needed. It will be constructed with 
+additional ID parameter and will be responsible to forward all the API calls from the Character 
+**Driver** to I2C **Device** while adding one extra parameter of ID. 
 
-![Image: Using ID Adapter](../image/id_adapter_write.png)
+image::images/id_adapter_write.png[Image: Using ID Adapter]
 
 The implementation of such adaptor is very simple and straightforward:
-```cpp
+[source, c++]
+----
 template <typename TDevice>
 class IdAdaptor
 {
@@ -120,19 +131,32 @@ private:
     DeviceIdType id_;
 };
 
-```
-The same adaptor class is implemented in [embxx/device/IdDeviceCharAdapter.h](https://github.com/arobenko/embxx/blob/master/embxx/device/IdDeviceCharAdapter.h) file of [embxx](https://github.com/arobenko/embxx) library.
+----
+The same adaptor class is implemented in 
+https://github.com/arobenko/embxx/blob/master/embxx/device/IdDeviceCharAdapter.h[embxx/device/IdDeviceCharAdapter.h] 
+file of https://github.com/arobenko/embxx[embxx] library.
 
-### Operations Queue
+[[peripheral-i2c-operations_queue]]
+==== Operations Queue ====
 
-The I2C protocol allows existence of multiple independent slaves on the same bus. It means there may be several independent **Components** that communicate to different I2C devices (for example EEPROM and temperature sensor), but must share the same **Device** control object and may issue read/write requests to it in parallel. To resolve this problem, there must be some kind of operation queuing facility that is responsible to queue all the read/write requests to the **Device** and issue them one by one.
+The I2C protocol allows existence of multiple independent slaves on the same bus. It means there may be 
+several independent **Components** that communicate to different I2C devices (for example EEPROM and 
+temperature sensor), but must share the same **Device** control object and may issue read/write requests
+to it in parallel. To resolve this problem, there must be some kind of operation queuing facility that 
+is responsible to queue all the read/write requests to the **Device** and issue them one by one.
 
 The objects' usage map looks like this:
 
-![Image: Using Op Queue](../image/op_queue.png)
+image::images/op_queue.png[Image: Using Op Queue]
 
-Such queue is a platform/product independent piece of code and it should be implemented without using dynamic memory allocation and/or exceptions. It means that it should receive number of various **Driver** objects, that may issue independent read/write requests to it (i.e. size of the internal queue), as a template parameter and probably use [Static (Fixed Size) Queue](../basic_needs/queue.md) to queue all the requests that are coming in. It should also receive callback storage types to report when a new character can be read/written, as well as when read/write operation is complete.
-```cpp
+Such queue is a platform/product independent piece of code and it should be implemented without using 
+dynamic memory allocation and/or exceptions. It means that it should receive number of various **Driver** 
+objects, that may issue independent read/write requests to it (i.e. size of the internal queue), 
+as a template parameter and probably use <<basic_needs-queue>> to queue all the requests that are coming 
+in. It should also receive callback storage types to report when a new character can be read/written, 
+as well as when read/write operation is complete.
+[source, c++]
+----
 template <typename TDevice,
           std::size_t TSize,
           typename TCanDoOpHandler = embxx::util::StaticFunction<void()>,
@@ -147,10 +171,12 @@ private:
     typedef embxx::container::StaticQueue<..., TSize> Queue;
     Queue queue_;
 };
-```
+----
 
-When the `TSize` template parameter is set to `1`, there is no need for all the queuing facility and the DeviceOpQueue class may become a simple pass-through inline class using template specialisation:
-```cpp
+When the `TSize` template parameter is set to `1`, there is no need for all the queuing facility 
+and the `DeviceOpQueue` class may become a simple pass-through inline class using template specialisation:
+[source, c++]
+----
 template <typename TDevice>
 class DeviceOpQueue<TDevice, 1>
 {
@@ -180,17 +206,24 @@ public:
 
     ...
 };
-```
-Such queue is also implemented in [embxx](https://github.com/arobenko/embxx) library. It resides in the [embxx/device/DeviceOpQueue.h](https://github.com/arobenko/embxx/blob/master/embxx/device/DeviceOpQueue.h) file.
+----
+Such queue is also implemented in https://github.com/arobenko/embxx[embxx] library. It resides in the 
+https://github.com/arobenko/embxx/blob/master/embxx/device/DeviceOpQueue.h[embxx/device/DeviceOpQueue.h] file.
 
-Please note that [ID Adaptor](#id-adaptor) and [Operations Queue](#operations-queue) are both **Device** layer classes. The serve as wrappers to actual peripheral control **Device** in order to expose the right interface to the upper layer **Driver**.
+Please note that <<peripherals-i2c-id_adaptor>> and <<peripherals-i2c-operations_queue>> are both **Device** 
+layer classes. The serve as wrappers to actual peripheral control **Device** in order to expose the 
+right interface to the upper layer **Driver**.
 
-### I2C Device
+==== I2C Device ====
 
-The only thing that remains is to properly implement I2C control device, which can be used by the `DeviceOpQueue`, which in turn is used by the `IdAdaptor`. The `IdAdaptor` object can be used with the existing `Character` **Driver** implemented to be used with the [UART](uart.md) peripheral.
+The only thing that remains is to properly implement I2C control device, which can be used by the `DeviceOpQueue`, 
+which in turn is used by the `IdAdaptor`. The `IdAdaptor` object can be used with the existing `Character` 
+**Driver** implemented to be used with the <<peripherals-uart>> peripheral.
 
-Based on the information above, the platform specific I2C control **Device** object must provide the following public interface:
-```cpp
+Based on the information above, the platform specific I2C control **Device** object must provide the 
+following public interface:
+[source, c++]
+----
 class I2CDevice
 {
 public:
@@ -244,11 +277,18 @@ public:
     CharType read(InterruptContext);
     void write(CharType value, InterruptContext);
 };
-```
+----
 
-Such device to control **I2C0** interface on RaspberryPi platform is implemented in [src/device/I2C0.h](https://github.com/arobenko/embxx_on_rpi/blob/master/src/device/I2C0.h) file of [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project.
+Such device to control **I2C0** interface on RaspberryPi platform is implemented in 
+https://github.com/arobenko/embxx_on_rpi/blob/master/src/device/I2C0.h[src/device/I2C0.h] file of 
+https://github.com/arobenko/embxx_on_rpi[embxx_on_rpi] project.
 
-### EEPROM Access Application
+==== EEPROM Access Application ====
 
-The [embxx_on_rpi](https://github.com/arobenko/embxx_on_rpi) project contains an application called [app_i2c0_eeprom](https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_i2c0_eeprom). It implements a parallel access to 2 EEPROMs connected to the same I2C0 bus, but having different addresses. The EEPROMs are accessed independently at the same time with read/write operations. These operations are queued and managed by the `DeviceOpQueue` object that wraps actual I2C control **Device** and forwards the requests one by one.
+The https://github.com/arobenko/embxx_on_rpi[embxx_on_rpi] project contains an application called 
+https://github.com/arobenko/embxx_on_rpi/tree/master/src/app/app_i2c0_eeprom[app_i2c0_eeprom]. It 
+implements a parallel access to 2 EEPROMs connected to the same I2C0 bus, but having different addresses. 
+The EEPROMs are accessed independently at the same time with read/write operations. These operations are 
+queued and managed by the `DeviceOpQueue` object that wraps actual I2C control **Device** and forwards 
+the requests one by one.
 
