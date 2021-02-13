@@ -1,0 +1,6 @@
+=== Reading Offline ===
+
+The source code of this book is hosted on https://github.com/arobenko/bare_metal_cpp_src[github] and
+both PDF and HTML versions of this book can be downloaded from the 
+https://github.com/arobenko/bare_metal_cpp_src/releases[release_artifacts].
+

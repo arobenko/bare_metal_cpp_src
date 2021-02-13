@@ -20,4 +20,5 @@ include::popularity.adoc[]
 include::benefits.adoc[]
 include::contents.adoc[]
 include::contribution.adoc[] 
+include::offline.adoc[] 
 
